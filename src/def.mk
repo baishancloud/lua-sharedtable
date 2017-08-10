@@ -11,7 +11,7 @@ UNITTEST_FLAGS = $(if $(DEBUG_UNITTEST), -D ST_DEBUG_UNITTEST)
 
 CC        = gcc
 BASE_DIR ?= ..
-CFLAGS   ?= -g -Wall -Werror -std=c11 $(DEBUG_FLAGS)
+CFLAGS   ?= -g -Wall -Werror -std=c11 -pthread -D_GNU_SOURCE $(DEBUG_FLAGS)
 
 C_INCLUDE_PATH = $(BASE_DIR):$(BASE_DIR)/inc
 export C_INCLUDE_PATH
