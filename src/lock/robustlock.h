@@ -11,9 +11,9 @@
 #include "inc/err.h"
 #include "inc/log.h"
 
-int robust_lock_init(pthread_mutex_t *lock);
-int robust_lock(pthread_mutex_t *lock);
-int robust_unlock(pthread_mutex_t *lock);
-int robust_lock_destroy(pthread_mutex_t *lock);
+int st_robustlock_init(pthread_mutex_t *lock);
+int st_robustlock_lock(pthread_mutex_t *lock);
+int st_robustlock_unlock(pthread_mutex_t *lock);
+int st_robustlock_destroy(pthread_mutex_t *lock);
 
 #endif /* _ROBUST_LOCK_H_INCLUDED_ */

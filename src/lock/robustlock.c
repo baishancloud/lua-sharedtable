@@ -1,6 +1,6 @@
-#include "robust_lock.h"
+#include "robustlock.h"
 
-int robust_lock_init(pthread_mutex_t *lock)
+int st_robustlock_init(pthread_mutex_t *lock)
 {
     int ret = ST_ERR;
     pthread_mutexattr_t attr;
@@ -37,7 +37,7 @@ exit:
     return ret;
 }
 
-int robust_lock(pthread_mutex_t *lock)
+int st_robustlock_lock(pthread_mutex_t *lock)
 {
     int ret = ST_ERR;
 
@@ -64,17 +64,15 @@ int robust_lock(pthread_mutex_t *lock)
     return ret;
 }
 
-int robust_unlock(pthread_mutex_t *lock)
+int st_robustlock_unlock(pthread_mutex_t *lock)
 {
-    int ret = ST_ERR;
-
-    ret = pthread_mutex_unlock(lock);
+    int ret = pthread_mutex_unlock(lock);
     dd("pthread_mutex_unlock ret: %d, pid:%d, address: %p\n", ret, getpid(), lock);
 
     return ret;
 }
 
-int robust_lock_destroy(pthread_mutex_t *lock)
+int st_robustlock_destroy(pthread_mutex_t *lock)
 {
     return pthread_mutex_destroy(lock);
 }
