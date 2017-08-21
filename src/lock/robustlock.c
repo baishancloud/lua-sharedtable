@@ -5,7 +5,9 @@ int st_robustlock_init(pthread_mutex_t *lock)
     int ret = ST_ERR;
     pthread_mutexattr_t attr;
 
-    memset(&attr, 0, sizeof(pthread_mutexattr_t));
+    memset(&attr, 0, sizeof(attr));
+
+    st_must(lock != NULL, ST_ARG_INVALID);
 
     ret = pthread_mutexattr_init(&attr);
     if (ret != ST_OK) {
@@ -41,31 +43,30 @@ int st_robustlock_lock(pthread_mutex_t *lock)
 {
     int ret = ST_ERR;
 
-    ret = pthread_mutex_lock(lock);
-    dd("pthread_mutex_lock ret: %d, pid:%d, address: %p\n", ret, getpid(), lock);
-    if (ret != EOWNERDEAD) {
-        return ret;
+    st_must(lock != NULL, ST_ARG_INVALID);
+
+    while (1) {
+
+        ret = pthread_mutex_lock(lock);
+        dd("pthread_mutex_lock ret: %d, pid:%d, address: %p\n", ret, getpid(), lock);
+        if (ret != EOWNERDEAD) {
+            return ret;
+        }
+
+        ret = pthread_mutex_consistent(lock);
+        dd("pthread_mutex_consistent ret: %d, pid:%d, address: %p\n", ret, getpid(), lock);
+
+        ret = pthread_mutex_unlock(lock);
+        dd("pthread_mutex_unlock ret: %d, pid:%d, address: %p\n", ret, getpid(), lock);
     }
 
-    ret = pthread_mutex_consistent(lock);
-    dd("pthread_mutex_consistent ret: %d, pid:%d, address: %p\n", ret, getpid(), lock);
-    if (ret != ST_OK) {
-        return ret;
-    }
-
-    ret = pthread_mutex_unlock(lock);
-    dd("pthread_mutex_unlock ret: %d, pid:%d, address: %p\n", ret, getpid(), lock);
-    if (ret != ST_OK) {
-        return ret;
-    }
-
-    ret = pthread_mutex_lock(lock);
-    dd("pthread_mutex_lock ret: %d, pid:%d, address: %p\n", ret, getpid(), lock);
     return ret;
 }
 
 int st_robustlock_unlock(pthread_mutex_t *lock)
 {
+    st_must(lock != NULL, ST_ARG_INVALID);
+
     int ret = pthread_mutex_unlock(lock);
     dd("pthread_mutex_unlock ret: %d, pid:%d, address: %p\n", ret, getpid(), lock);
 
@@ -74,5 +75,7 @@ int st_robustlock_unlock(pthread_mutex_t *lock)
 
 int st_robustlock_destroy(pthread_mutex_t *lock)
 {
+    st_must(lock != NULL, ST_ARG_INVALID);
+
     return pthread_mutex_destroy(lock);
 }

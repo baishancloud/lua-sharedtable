@@ -1,8 +1,8 @@
 
-src = robust_lock.c
-target = robust_lock.a
+src = robustlock.c
+target = robustlock.a
 
-test_exec = test_robust
+test_exec = test_robustlock
 
 BASE_DIR ?= $(CURDIR)/..
 include $(BASE_DIR)/def.mk

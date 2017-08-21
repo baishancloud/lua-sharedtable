@@ -6,11 +6,14 @@
 #include "robustlock.h"
 #include "unittest/unittest.h"
 
+void *share_alloc(int size) {
+    return mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
+}
+
 pthread_mutex_t *alloc_lock() {
     pthread_mutex_t *lock = NULL;
 
-    lock = mmap(NULL, sizeof(pthread_mutex_t), PROT_READ|PROT_WRITE,
-                MAP_SHARED|MAP_ANONYMOUS, -1, 0);
+    lock = share_alloc(sizeof(*lock));
 
     st_robustlock_init(lock);
 
@@ -23,18 +26,65 @@ void free_lock(pthread_mutex_t *lock) {
     ret = st_robustlock_destroy(lock);
     st_ut_eq(ST_OK, ret, "lock destroy");
 
-    munmap(lock, sizeof(pthread_mutex_t));
+    munmap(lock, sizeof(*lock));
+}
+
+void create_lock_loop_children(pthread_mutex_t *lock, int *pids,
+                               int pid_num, int *stop_flag, int interval) {
+    int ret = 0;
+    int child = 0;
+
+    for (int i = 0; i < pid_num; i++) {
+
+        child = fork();
+
+        if (child == 0) {
+
+            while (1) {
+                ret = st_robustlock_lock(lock);
+                if (ret != ST_OK) {
+                    exit(ret);
+                }
+
+                usleep(interval);
+
+                ret = st_robustlock_unlock(lock);
+                if (ret != ST_OK) {
+                    exit(ret);
+                }
+
+                usleep(1);
+
+                if (*stop_flag == 1) {
+                    exit(0);
+                }
+            }
+        }
+
+        pids[i] = child;
+    }
+}
+
+void wait_children(int *pids, int pid_num) {
+    int ret = -1;
+
+    for (int i = 0; i < pid_num; i++) {
+        waitpid(pids[i], &ret, 0);
+        st_ut_eq(ST_OK, ret, "judge children return status");
+    }
 }
 
 st_test(robustlock, init) {
     int ret = -1;
     pthread_mutex_t *lock = NULL;
 
-    lock = mmap(NULL, sizeof(pthread_mutex_t), PROT_READ|PROT_WRITE,
-                MAP_SHARED|MAP_ANONYMOUS, -1, 0);
+    lock = share_alloc(sizeof(*lock));
 
     ret = st_robustlock_init(lock);
-    st_ut_eq(ST_OK, ret, "lock init");
+    st_ut_eq(ST_OK, ret, "init with alloced lock");
+
+    ret = st_robustlock_init(NULL);
+    st_ut_eq(ST_ARG_INVALID, ret, "init with unalloced lock");
 
     free_lock(lock);
 }
@@ -46,9 +96,12 @@ st_test(robustlock, destroy) {
     lock = alloc_lock();
 
     ret = st_robustlock_destroy(lock);
-    st_ut_eq(ST_OK, ret, "lock destroy");
+    st_ut_eq(ST_OK, ret, "destroy with alloced lock");
 
-    munmap(lock, sizeof(pthread_mutex_t));
+    ret = st_robustlock_destroy(NULL);
+    st_ut_eq(ST_ARG_INVALID, ret, "destroy with unalloced lock");
+
+    munmap(lock, sizeof(*lock));
 }
 
 
@@ -59,7 +112,13 @@ st_test(robustlock, lock) {
     lock = alloc_lock();
 
     ret = st_robustlock_lock(lock);
-    st_ut_eq(ST_OK, ret, "lock");
+    st_ut_eq(ST_OK, ret, "lock with alloced lock");
+
+    ret = st_robustlock_lock(lock);
+    st_ut_eq(EDEADLK, ret, "lock with already locked lock");
+
+    ret = st_robustlock_lock(NULL);
+    st_ut_eq(ST_ARG_INVALID, ret, "lock with unalloced lock");
 
     free_lock(lock);
 }
@@ -70,135 +129,66 @@ st_test(robustlock, unlock) {
 
     lock = alloc_lock();
 
+    ret = st_robustlock_unlock(lock);
+    st_ut_eq(EPERM, ret, "unlock with not locked lock");
+
     ret = st_robustlock_lock(lock);
     st_ut_eq(ST_OK, ret, "lock");
 
     ret = st_robustlock_unlock(lock);
-    st_ut_eq(ST_OK, ret, "unlock");
+    st_ut_eq(ST_OK, ret, "unlock with locked lock");
 
-    free_lock(lock);
-}
-
-st_test(robustlock, lock_many_times) {
-    int ret = -1;
-    pthread_mutex_t *lock = NULL;
-
-    lock = alloc_lock();
-
-    for (int i = 0; i < 20; i++) {
-        ret = st_robustlock_lock(lock);
-        st_ut_eq(ST_OK, ret, "lock in %d times", i);
-
-        ret = st_robustlock_unlock(lock);
-        st_ut_eq(ST_OK, ret, "unlock in %d times", i);
-
-    }
+    ret = st_robustlock_unlock(NULL);
+    st_ut_eq(ST_ARG_INVALID, ret, "unlock with unalloced lock");
 
     free_lock(lock);
 }
 
 st_test(robustlock, concurrent_lock) {
-    int ret = -1;
-    int ch1, ch2;
-
+    int *stop_flag = NULL;
     pthread_mutex_t *lock = NULL;
+    int pids[50] = {0};
+
+    stop_flag = share_alloc(sizeof(*stop_flag));
+
     lock = alloc_lock();
 
-    ch1 = fork();
-    if (ch1 == 0) {
-        ret = st_robustlock_lock(lock);
-        st_ut_eq(ST_OK, ret, "child1 lock");
-        sleep(1);
+    create_lock_loop_children(lock, pids, 50, stop_flag, 10);
 
-        ret = st_robustlock_unlock(lock);
-        st_ut_eq(ST_OK, ret, "child1 unlock");
+    sleep(2);
 
-        exit(0);
-    }
+    *stop_flag = 1;
 
-    ch2 = fork();
-    if (ch2 == 0) {
-        ret = st_robustlock_lock(lock);
-        st_ut_eq(ST_OK, ret, "child2 lock");
-        sleep(1);
-
-        ret = st_robustlock_unlock(lock);
-        st_ut_eq(ST_OK, ret, "child2 unlock");
-
-        exit(0);
-    }
-
-    waitpid(ch1, &ret, 0);
-    waitpid(ch2, &ret, 0);
-
+    wait_children(pids, 50);
     free_lock(lock);
 }
 
-st_test(robustlock, deadlock_with_robust) {
-    int ch1, ch2;
+st_test(robustlock, concurrent_deadlock) {
+    int child;
     int ret = -1;
-
+    int *stop_flag = NULL;
     pthread_mutex_t *lock = NULL;
+    int pids[50] = {0};
+
+    stop_flag = share_alloc(sizeof(*stop_flag));
+
     lock = alloc_lock();
 
-    ch1 = fork();
-    if (ch1 == 0) {
-        ret = st_robustlock_lock(lock);
-        st_ut_eq(ST_OK, ret, "lock");
+    create_lock_loop_children(lock, pids, 50, stop_flag, 5);
 
-        exit(0);
-    }
-
-    waitpid(ch1, &ret, 0);
-
-    ch2 = fork();
-    if (ch2 == 0) {
-        ret = st_robustlock_lock(lock);
-        st_ut_eq(ST_OK, ret, "lock");
-
-        ret = st_robustlock_unlock(lock);
-        st_ut_eq(ST_OK, ret, "unlock");
-
-        exit(0);
-    }
-
-    waitpid(ch2, &ret, 0);
-    free_lock(lock);
-}
-
-st_test(robustlock, deadlock_many_times) {
-    int ch1, ch2;
-    int ret = -1;
-
-    pthread_mutex_t *lock = NULL;
-    lock = alloc_lock();
-
-    for (int i = 0; i < 20; i++) {
-
-        ch1 = fork();
-        if (ch1 == 0) {
+    for (int i = 0; i < 500; i++) {
+        child = fork();
+        if (child == 0) {
             ret = st_robustlock_lock(lock);
-            st_ut_eq(ST_OK, ret, "lock");
-
-            exit(0);
+            exit(ret);
         }
-
-        waitpid(ch1, &ret, 0);
-
-        ch2 = fork();
-        if (ch2 == 0) {
-            ret = st_robustlock_lock(lock);
-            st_ut_eq(ST_OK, ret, "lock");
-
-            ret = st_robustlock_unlock(lock);
-            st_ut_eq(ST_OK, ret, "unlock");
-
-            exit(0);
-        }
-
-        waitpid(ch2, &ret, 0);
+        waitpid(child, &ret, 0);
+        st_ut_eq(ST_OK, ret, "concurrent deadlock");
     }
 
+    *stop_flag = 1;
+
+    wait_children(pids, 50);
     free_lock(lock);
 }
 
