@@ -128,5 +128,12 @@
       }                                                                       \
   } while (0)
 
+#ifdef ST_DEBUG
+#   define st_dmust(expr, ...) st_must(expr, ##__VA_ARGS__)
+#   define st_dassert(expr) st_assert(expr)
+#else
+#   define st_dmust(expr, ...)
+#   define st_dassert(expr)
+#endif /* ST_DEBUG */
 
 #endif /* __INC__UTIL_H__ */
