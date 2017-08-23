@@ -70,7 +70,7 @@ void wait_children(int *pids, int pid_num) {
 
     for (int i = 0; i < pid_num; i++) {
         waitpid(pids[i], &ret, 0);
-        st_ut_eq(ST_OK, ret, "judge children return status");
+        st_ut_eq(ST_OK, ret, "check children return status");
     }
 }
 
