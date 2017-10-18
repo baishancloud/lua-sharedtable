@@ -24,7 +24,7 @@
   (ST_OUT_OF_MEMORY),         \
   (ST_TIMEOUT),               \
   (ST_UNSUPPORTED),           \
-                                 \
+  (ST_UNINITED),              \
   (ST_BUF_NOT_ENOUGH),        \
   (ST_BUF_OVERFLOW),          \
   (ST_DISK_IN_ERR_STATE),     \
