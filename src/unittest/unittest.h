@@ -118,7 +118,7 @@ char *st_ut_get_tostring_buf();
     do {                                                                      \
         st_typeof(__e) _e = (__e); \
         st_typeof(__a) _a = (__a); \
-        int __rst = st_ut_compare_func_(__e)(__e, __a);                      \
+        int __rst = st_ut_compare_func_(_e)(_e, _a);                      \
         st_ut_assert_(__rst _operator 0,                                     \
              "Expected: '%s' " #_operator " '%s' " fmt,                       \
              st_ut_print_func_(_e)(_e),                                    \
