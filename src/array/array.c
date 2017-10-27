@@ -2,7 +2,7 @@
 
 static int st_array_extend_when_needed(st_array_t *array, size_t incr_cnt);
 
-int st_array_static_array_init(st_array_t *array, size_t element_size,
+int st_array_init_static(st_array_t *array, size_t element_size,
         void *start_addr, size_t total_cnt)
 {
     st_must(array != NULL, ST_ARG_INVALID);
@@ -19,12 +19,12 @@ int st_array_static_array_init(st_array_t *array, size_t element_size,
     return ST_OK;
 }
 
-int st_array_dynamic_array_init(st_array_t *array, size_t element_size,
+int st_array_init_dynamic(st_array_t *array, size_t element_size,
         st_callback_memory_t callback)
 {
     int ret;
     st_must(array != NULL, ST_ARG_INVALID);
-    st_must(callback.inited == 1, ST_ARG_INVALID);
+    st_must(callback.free != NULL && callback.realloc != NULL, ST_ARG_INVALID);
 
     array->dynamic = 1;
     array->start_addr = NULL;
@@ -50,7 +50,7 @@ int st_array_destroy(st_array_t *array)
 
     // if is static array, you must free memory space by yourself
     if (array->dynamic == 1 && array->start_addr != NULL) {
-        array->callback.free_func(array->callback.pool, array->start_addr);
+        array->callback.free(array->callback.pool, array->start_addr);
     }
 
     memset(array, 0, sizeof(*array));
@@ -70,7 +70,7 @@ static int st_array_extend_when_needed(st_array_t *array, size_t incr_cnt)
     incr_cnt = st_max(incr_cnt, ST_ARRAY_MIN_SIZE);
     capacity = array->element_size * (array->total_cnt + incr_cnt);
 
-    addr = array->callback.realloc_func(array->callback.pool, array->start_addr, capacity);
+    addr = array->callback.realloc(array->callback.pool, array->start_addr, capacity);
     if (addr == NULL) {
         return ST_OUT_OF_MEMORY;
     }
@@ -137,7 +137,7 @@ int st_array_remove_many(st_array_t *array, size_t index, size_t cnt)
     return ST_OK;
 }
 
-int st_array_sort(st_array_t *array, st_array_compare_t compare_func)
+int st_array_sort(st_array_t *array, st_array_compare_f compare_func)
 {
     st_must(array != NULL, ST_ARG_INVALID);
     st_must(array->inited == 1, ST_UNINITED);
@@ -148,7 +148,7 @@ int st_array_sort(st_array_t *array, st_array_compare_t compare_func)
     return ST_OK;
 }
 
-void * st_array_bsearch(st_array_t *array, void *element, st_array_compare_t compare_func)
+void * st_array_bsearch(st_array_t *array, void *element, st_array_compare_f compare_func)
 {
 
     st_must(array != NULL, NULL);
@@ -159,7 +159,7 @@ void * st_array_bsearch(st_array_t *array, void *element, st_array_compare_t com
     return bsearch(element, array->start_addr, array->current_cnt, array->element_size, compare_func);
 }
 
-void * st_array_indexof(st_array_t *array, void *element, st_array_compare_t compare_func)
+void * st_array_indexof(st_array_t *array, void *element, st_array_compare_f compare_func)
 {
     st_must(array != NULL, NULL);
     st_must(array->inited == 1, NULL);

@@ -10,7 +10,7 @@
 
 typedef struct st_array_s st_array_t;
 
-typedef int (*st_array_compare_t) (const void *a, const void *b);
+typedef int (*st_array_compare_f) (const void *a, const void *b);
 
 struct st_array_s {
     void * start_addr;
@@ -46,10 +46,10 @@ static inline void * st_array_get(st_array_t *array, size_t index) {
     return array->start_addr + array->element_size * index;
 }
 
-int st_array_static_array_init(st_array_t *array, size_t element_size,
+int st_array_init_static(st_array_t *array, size_t element_size,
         void *start_addr, size_t total_cnt);
 
-int st_array_dynamic_array_init(st_array_t *array, size_t element_size,
+int st_array_init_dynamic(st_array_t *array, size_t element_size,
         st_callback_memory_t callback);
 
 int st_array_destroy(st_array_t *array);
@@ -72,10 +72,10 @@ int st_array_remove_many(st_array_t *array, size_t index, size_t cnt);
 
 int st_array_append_many(st_array_t *array, void * elements, size_t cnt);
 
-int st_array_sort(st_array_t *array, st_array_compare_t compare_func);
+int st_array_sort(st_array_t *array, st_array_compare_f compare_func);
 
-void * st_array_bsearch(st_array_t *array, void *element, st_array_compare_t compare_func);
+void * st_array_bsearch(st_array_t *array, void *element, st_array_compare_f compare_func);
 
-void * st_array_indexof(st_array_t *array, void *element, st_array_compare_t compare_func);
+void * st_array_indexof(st_array_t *array, void *element, st_array_compare_f compare_func);
 
 #endif /* _ARRAY_H_INCLUDED_ */

@@ -2,9 +2,8 @@
 #include "unittest/unittest.h"
 
 #define test_callback_inited {.pool = NULL,\
-                              .realloc_func = _realloc,\
-                              .free_func = _free,\
-                              .inited = 1}
+                              .realloc = _realloc,\
+                              .free = _free,}
 
 st_test(array, static_array_init) {
 
@@ -27,7 +26,7 @@ st_test(array, static_array_init) {
         st_typeof(cases[0]) c = cases[i];
 
         st_ut_eq(c.expect_ret,
-                 st_array_static_array_init(c.array, 4, c.start_addr, c.total_count),
+                 st_array_init_static(c.array, 4, c.start_addr, c.total_count),
                  "test static init");
 
         if (c.expect_ret != ST_OK) {
@@ -54,7 +53,7 @@ void _free(void *pool, void *ptr) {
 st_test(array, dynamic_array_init) {
 
     st_array_t array = {0};
-    st_callback_memory_t uninited_callback = s3_callback_null;
+    st_callback_memory_t uninited_callback = {0};
     st_callback_memory_t callback = test_callback_inited;
 
     struct case_s {
@@ -71,7 +70,7 @@ st_test(array, dynamic_array_init) {
         st_typeof(cases[0]) c = cases[i];
 
         st_ut_eq(c.expect_ret,
-                 st_array_dynamic_array_init(c.array, 4, c.callback),
+                 st_array_init_dynamic(c.array, 4, c.callback),
                  "test dynamic init");
 
         if (c.expect_ret != ST_OK) {
@@ -116,9 +115,9 @@ st_test(array, destroy) {
         st_typeof(cases[0]) c = cases[i];
 
         if (c.dynamic == 1) {
-            st_ut_eq(ST_OK, st_array_dynamic_array_init(&array, 4, callback), "init ok");
+            st_ut_eq(ST_OK, st_array_init_dynamic(&array, 4, callback), "init ok");
         } else {
-            st_ut_eq(ST_OK, st_array_static_array_init(&array, 4, array_buf, 10), "init ok");
+            st_ut_eq(ST_OK, st_array_init_static(&array, 4, array_buf, 10), "init ok");
         }
 
         if (c.append == 1) {
@@ -158,7 +157,7 @@ st_test(array, dynamic_array_expand) {
         {1, 131, 194, -1},
     };
 
-    st_array_dynamic_array_init(&array, 4, callback);
+    st_array_init_dynamic(&array, 4, callback);
 
     for (int i = 0; i < st_nelts(cases); i++) {
         st_typeof(cases[0]) c = cases[i];
@@ -198,7 +197,7 @@ st_test(array, static_array_append) {
 
     st_ut_eq(ST_UNINITED, st_array_append(&array, append_buf), "append uninited array");
 
-    st_array_static_array_init(&array, 4, array_buf, 10);
+    st_array_init_static(&array, 4, array_buf, 10);
 
     for (int i = 0; i < st_nelts(cases); i++) {
         st_typeof(cases[0]) c = cases[i];
@@ -229,7 +228,7 @@ st_test(array, dynamic_array_append) {
     int append_buf[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
     st_callback_memory_t callback = test_callback_inited;
 
-    st_array_dynamic_array_init(&array, 4, callback);
+    st_array_init_dynamic(&array, 4, callback);
 
     st_ut_eq(ST_OK, st_array_append(&array, &append_buf, 10), "append values");
     st_ut_eq(10, array.current_cnt, "current_cnt right");
@@ -270,7 +269,7 @@ st_test(array, static_array_insert) {
     for (int i = 0; i < st_nelts(cases); i++) {
         st_typeof(cases[0]) c = cases[i];
 
-        st_array_static_array_init(&array, 4, array_buf, 20);
+        st_array_init_static(&array, 4, array_buf, 20);
         st_ut_eq(ST_OK, st_array_append(&array, append_buf, 10), "append ok");
 
         if (c.insert_num == 1) {
@@ -310,7 +309,7 @@ st_test(array, dynamic_array_insert) {
     int append_buf[10] = {0, 1, 2, 3, 4, 10, 11, 12, 13, 14};
     int insert_buf[5] = {5, 6, 7, 8, 9};
 
-    st_array_dynamic_array_init(&array, 4, callback);
+    st_array_init_dynamic(&array, 4, callback);
 
     st_ut_eq(ST_OK, st_array_append(&array, append_buf, 10), "append values");
 
@@ -353,7 +352,7 @@ st_test(array, remove) {
     for (int i = 0; i < st_nelts(cases); i++) {
         st_typeof(cases[0]) c = cases[i];
 
-        st_array_static_array_init(&array, 4, array_buf, 20);
+        st_array_init_static(&array, 4, array_buf, 20);
         st_ut_eq(ST_OK, st_array_append(&array, append_buf, 10), "append ok");
 
         if (c.remove_num == 1) {
@@ -398,7 +397,7 @@ st_test(array, sort) {
 
     st_ut_eq(ST_UNINITED, st_array_sort(&array, compare), "compare uninited array");
 
-    st_array_static_array_init(&array, 4, array_buf, 20);
+    st_array_init_static(&array, 4, array_buf, 20);
     st_ut_eq(ST_OK, st_array_append(&array, append_buf, 10), "append ok");
 
     st_ut_eq(ST_OK, st_array_sort(&array, compare), "sort ok");
@@ -421,7 +420,7 @@ st_test(array, bsearch) {
 
     st_ut_eq(NULL, st_array_bsearch(&array, &tmp, compare), "bsearch uninited array");
 
-    st_array_static_array_init(&array, 4, array_buf, 20);
+    st_array_init_static(&array, 4, array_buf, 20);
     st_ut_eq(ST_OK, st_array_append(&array, append_buf, 10), "append ok");
 
     for (int i = 0; i < 10; i++) {
@@ -464,7 +463,7 @@ st_test(array, search) {
 
     st_ut_eq(NULL, st_array_indexof(&array, &tmp, compare), "indexof uninited array");
 
-    st_array_static_array_init(&array, 4, array_buf, 20);
+    st_array_init_static(&array, 4, array_buf, 20);
     st_ut_eq(ST_OK, st_array_append(&array, append_buf, 10), "append ok");
 
     for (int i = 0; i < st_nelts(cases); i++) {
