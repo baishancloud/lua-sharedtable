@@ -5,7 +5,7 @@
 BASE_DIR := $(CURDIR)
 export BASE_DIR
 
-submod = binary btree lock list rbtree array
+submod = binary btree lock list rbtree array bitmap
 
 test:
 	for mod in $(submod); do ( cd $$mod && $(MAKE) test; ) done
