@@ -1,9 +1,11 @@
 #include "bitmap.h"
 
+#define ST_BITMAP_BITS_PER_WORD (sizeof(uint32_t) * 8)
+
 static uint32_t _bit_mask(uint32_t bit_index) {
     uint32_t index_in_word = bit_index % ST_BITMAP_BITS_PER_WORD;
 
-    return 1 << index_in_word;
+    return 1U << index_in_word;
 }
 
 uint32_t st_bitmap_get_bit(uint32_t *bitmap, uint32_t bit_index) {
@@ -27,20 +29,20 @@ void st_bitmap_clear_bit(uint32_t *bitmap, uint32_t bit_index) {
 static uint32_t _first_word_mask(uint32_t start_index) {
     uint32_t index_in_word = start_index % ST_BITMAP_BITS_PER_WORD;
 
-    return ~0 << index_in_word;
+    return ~0U << index_in_word;
 }
 
 static uint32_t _last_word_mask(uint32_t nbits) {
     uint32_t last_bits_num = nbits % ST_BITMAP_BITS_PER_WORD;
 
     if (last_bits_num != 0) {
-        return (1 << last_bits_num) - 1;
+        return (1U << last_bits_num) - 1;
     } else {
-        return ~0;
+        return ~0U;
     }
 }
 
-int st_bitmap_all_cleared(uint32_t *bitmap, uint32_t nbits)
+int st_bitmap_are_all_cleared(uint32_t *bitmap, uint32_t nbits)
 {
     int i;
 
@@ -61,7 +63,7 @@ int st_bitmap_all_cleared(uint32_t *bitmap, uint32_t nbits)
     return 1;
 }
 
-int st_bitmap_all_set(uint32_t *bitmap, uint32_t nbits)
+int st_bitmap_are_all_set(uint32_t *bitmap, uint32_t nbits)
 {
     int i;
 

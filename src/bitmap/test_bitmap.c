@@ -11,8 +11,10 @@ st_test(bitmap, get_bit) {
         {{0x00000010, 0x00000000}, 4},
         {{0x00000100, 0x00000000}, 8},
         {{0x10000000, 0x00000000}, 28},
+        {{0x80000000, 0x00000000}, 31},
         {{0x00000000, 0x00000001}, 32},
         {{0x00000000, 0x10000000}, 60},
+        {{0x00000000, 0x80000000}, 63},
     };
 
     for (int i = 0; i < st_nelts(cases); i++) {
@@ -31,7 +33,7 @@ st_test(bitmap, get_bit) {
 st_test(bitmap, set_bit) {
 
     uint32_t bitmap[2] = {0};
-    int set_indexes[] = {0, 1, 5, 9, 10, 11, 29, 33, 61, 62, 63};
+    int set_indexes[] = {0, 1, 5, 9, 10, 11, 29, 31, 33, 61, 62, 63};
 
     int set_i;
 
@@ -63,7 +65,7 @@ st_test(bitmap, set_bit) {
 st_test(bitmap, clear_bit) {
 
     uint32_t bitmap[2] = {0xffffffff, 0xffffffff};
-    int clear_indexes[] = {0, 1, 5, 9, 10, 11, 29, 33, 61, 62, 63};
+    int clear_indexes[] = {0, 1, 5, 9, 10, 11, 29, 31, 33, 61, 62, 63};
 
     int clear_i;
 
@@ -116,10 +118,10 @@ st_test(bitmap, all_cleared) {
     for (int i = 0; i < st_nelts(cases); i++) {
         st_typeof(cases[0]) c = cases[i];
 
-        st_ut_eq(c.is_cleared, st_bitmap_all_cleared(c.bitmap, c.nbits), "set result is right");
+        st_ut_eq(c.is_cleared, st_bitmap_are_all_cleared(c.bitmap, c.nbits), "set result is right");
     }
 
-    st_ut_eq(ST_ARG_INVALID, st_bitmap_all_cleared(NULL, 2), "bitmap is NULL");
+    st_ut_eq(ST_ARG_INVALID, st_bitmap_are_all_cleared(NULL, 2), "bitmap is NULL");
 }
 
 st_test(bitmap, all_set) {
@@ -146,10 +148,10 @@ st_test(bitmap, all_set) {
     for (int i = 0; i < st_nelts(cases); i++) {
         st_typeof(cases[0]) c = cases[i];
 
-        st_ut_eq(c.is_set, st_bitmap_all_set(c.bitmap, c.nbits), "clear result is right");
+        st_ut_eq(c.is_set, st_bitmap_are_all_set(c.bitmap, c.nbits), "clear result is right");
     }
 
-    st_ut_eq(ST_ARG_INVALID, st_bitmap_all_set(NULL, 2), "bitmap is NULL");
+    st_ut_eq(ST_ARG_INVALID, st_bitmap_are_all_set(NULL, 2), "bitmap is NULL");
 }
 
 st_test(bitmap, equall) {
