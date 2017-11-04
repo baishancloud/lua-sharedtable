@@ -5,7 +5,7 @@ st_test(bitmap, get_bit) {
 
     struct case_s {
         uint64_t bitmap[2];
-        int set_index;
+        uint32_t set_index;
     } cases[] = {
         {{0x0000000000000001, 0x0000000000000000}, 0},
         {{0x0000000000000010, 0x0000000000000000}, 4},
@@ -32,7 +32,7 @@ st_test(bitmap, get_bit) {
 st_test(bitmap, set_bit) {
 
     uint64_t bitmap[2] = {0};
-    int set_indexes[] = {0, 1, 5, 9, 10, 11, 29, 31, 33, 61, 62, 63, 64, 65, 72, 127};
+    uint32_t set_indexes[] = {0, 1, 5, 9, 10, 11, 29, 31, 33, 61, 62, 63, 64, 65, 72, 127};
 
     int set_i;
 
@@ -64,7 +64,7 @@ st_test(bitmap, set_bit) {
 st_test(bitmap, clear_bit) {
 
     uint64_t bitmap[2] = {0xffffffffffffffff, 0xffffffffffffffff};
-    int clear_indexes[] = {0, 1, 5, 9, 10, 11, 29, 31, 33, 61, 62, 63, 64, 65, 72, 127};
+    uint32_t clear_indexes[] = {0, 1, 5, 9, 10, 11, 29, 31, 33, 61, 62, 63, 64, 65, 72, 127};
 
     int clear_i;
 
@@ -97,7 +97,7 @@ st_test(bitmap, all_cleared) {
 
     struct case_s {
         uint64_t bitmap[2];
-        int nbits;
+        uint32_t nbits;
         int is_cleared;
     } cases[] = {
         {{0x0000000000000000, 0x0000000000000000}, 1, 1},
@@ -127,7 +127,7 @@ st_test(bitmap, all_set) {
 
     struct case_s {
         uint64_t bitmap[2];
-        int nbits;
+        uint32_t nbits;
         int is_set;
     } cases[] = {
         {{0xffffffffffffffff, 0xffffffffffffffff}, 1, 1},
@@ -158,7 +158,7 @@ st_test(bitmap, equall) {
     struct case_s {
         uint64_t bitmap1[2];
         uint64_t bitmap2[2];
-        int nbits;
+        uint32_t nbits;
         int is_equal;
     } cases[] = {
         {{0xffffffffffffffff, 0xffffffffffffffff},
@@ -213,9 +213,9 @@ st_test(bitmap, find_next_bit) {
     uint64_t clear_bitmap[3] = {0xfffffffffefefffe, 0xffffffffffffffff, 0xfffffffffffff000};
 
     struct case_s {
-        uint64_t start_index;
-        int nbits;
-        int find_index;
+        uint32_t start_idx;
+        uint32_t end_idx;
+        uint32_t find_idx;
     } cases[] = {
         {0, 1, 0},
         {0, 2, 0},
@@ -244,20 +244,20 @@ st_test(bitmap, find_next_bit) {
     for (int i = 0; i < st_nelts(cases); i++) {
         st_typeof(cases[0]) c = cases[i];
 
-        st_ut_eq(c.find_index, st_bitmap_find_set_bit(set_bitmap, c.nbits, c.start_index), "find set bit is right");
+        st_ut_eq(c.find_idx, st_bitmap_find_set_bit(set_bitmap, c.start_idx, c.end_idx), "find set bit is right");
 
-        st_ut_eq(c.find_index, st_bitmap_find_clear_bit(clear_bitmap, c.nbits, c.start_index), "find clear bit is right");
+        st_ut_eq(c.find_idx, st_bitmap_find_clear_bit(clear_bitmap, c.start_idx, c.end_idx), "find clear bit is right");
     }
 
     uint64_t bitmap;
 
-    st_ut_eq(ST_ARG_INVALID, st_bitmap_find_next_bit(NULL, 2, 1, 0), "bitmap is NULL");
+    st_ut_eq(ST_ARG_INVALID, st_bitmap_find_next_bit(NULL, 1, 2, 0), "bitmap is NULL");
 
     st_ut_eq(ST_INDEX_OUT_OF_RANGE, st_bitmap_find_next_bit(&bitmap, 2, 2, 0), "bitmap start_index is out of range");
 
-    st_ut_eq(ST_INDEX_OUT_OF_RANGE, st_bitmap_find_next_bit(&bitmap, 2, 3, 0), "bitmap start_index is out of range");
+    st_ut_eq(ST_INDEX_OUT_OF_RANGE, st_bitmap_find_next_bit(&bitmap, 3, 2, 0), "bitmap start_index is out of range");
 
-    st_ut_eq(ST_ARG_INVALID, st_bitmap_find_next_bit(&bitmap, 2, 1, 2), "bitmap start_index is out of range");
+    st_ut_eq(ST_ARG_INVALID, st_bitmap_find_next_bit(&bitmap, 1, 2, 2), "bitmap start_index is out of range");
 }
 
 st_ut_main;
