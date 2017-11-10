@@ -5,6 +5,14 @@
                               .realloc = _realloc,\
                               .free = _free,}
 
+int compare(const void *a, const void *b)
+{
+    int m = *(int *) a;
+    int n = *(int *) b;
+
+    return m-n;
+}
+
 st_test(array, static_array_init) {
 
     st_array_t array = {0};
@@ -26,7 +34,7 @@ st_test(array, static_array_init) {
         st_typeof(cases[0]) c = cases[i];
 
         st_ut_eq(c.expect_ret,
-                 st_array_init_static(c.array, 4, c.start_addr, c.total_count),
+                 st_array_init_static(c.array, 4, c.start_addr, c.total_count, compare),
                  "test static init");
 
         if (c.expect_ret != ST_OK) {
@@ -70,7 +78,7 @@ st_test(array, dynamic_array_init) {
         st_typeof(cases[0]) c = cases[i];
 
         st_ut_eq(c.expect_ret,
-                 st_array_init_dynamic(c.array, 4, c.callback),
+                 st_array_init_dynamic(c.array, 4, c.callback, compare),
                  "test dynamic init");
 
         if (c.expect_ret != ST_OK) {
@@ -115,9 +123,9 @@ st_test(array, destroy) {
         st_typeof(cases[0]) c = cases[i];
 
         if (c.dynamic == 1) {
-            st_ut_eq(ST_OK, st_array_init_dynamic(&array, 4, callback), "init ok");
+            st_ut_eq(ST_OK, st_array_init_dynamic(&array, 4, callback, compare), "init ok");
         } else {
-            st_ut_eq(ST_OK, st_array_init_static(&array, 4, array_buf, 10), "init ok");
+            st_ut_eq(ST_OK, st_array_init_static(&array, 4, array_buf, 10, compare), "init ok");
         }
 
         if (c.append == 1) {
@@ -157,7 +165,7 @@ st_test(array, dynamic_array_expand) {
         {1, 131, 194, -1},
     };
 
-    st_array_init_dynamic(&array, 4, callback);
+    st_array_init_dynamic(&array, 4, callback, compare);
 
     for (int i = 0; i < st_nelts(cases); i++) {
         st_typeof(cases[0]) c = cases[i];
@@ -197,7 +205,7 @@ st_test(array, static_array_append) {
 
     st_ut_eq(ST_UNINITED, st_array_append(&array, append_buf), "append uninited array");
 
-    st_array_init_static(&array, 4, array_buf, 10);
+    st_array_init_static(&array, 4, array_buf, 10, compare);
 
     for (int i = 0; i < st_nelts(cases); i++) {
         st_typeof(cases[0]) c = cases[i];
@@ -228,7 +236,7 @@ st_test(array, dynamic_array_append) {
     int append_buf[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
     st_callback_memory_t callback = test_callback_inited;
 
-    st_array_init_dynamic(&array, 4, callback);
+    st_array_init_dynamic(&array, 4, callback, compare);
 
     st_ut_eq(ST_OK, st_array_append(&array, &append_buf, 10), "append values");
     st_ut_eq(10, array.current_cnt, "current_cnt right");
@@ -269,7 +277,7 @@ st_test(array, static_array_insert) {
     for (int i = 0; i < st_nelts(cases); i++) {
         st_typeof(cases[0]) c = cases[i];
 
-        st_array_init_static(&array, 4, array_buf, 20);
+        st_array_init_static(&array, 4, array_buf, 20, compare);
         st_ut_eq(ST_OK, st_array_append(&array, append_buf, 10), "append ok");
 
         if (c.insert_num == 1) {
@@ -309,7 +317,7 @@ st_test(array, dynamic_array_insert) {
     int append_buf[10] = {0, 1, 2, 3, 4, 10, 11, 12, 13, 14};
     int insert_buf[5] = {5, 6, 7, 8, 9};
 
-    st_array_init_dynamic(&array, 4, callback);
+    st_array_init_dynamic(&array, 4, callback, compare);
 
     st_ut_eq(ST_OK, st_array_append(&array, append_buf, 10), "append values");
 
@@ -352,7 +360,7 @@ st_test(array, remove) {
     for (int i = 0; i < st_nelts(cases); i++) {
         st_typeof(cases[0]) c = cases[i];
 
-        st_array_init_static(&array, 4, array_buf, 20);
+        st_array_init_static(&array, 4, array_buf, 20, compare);
         st_ut_eq(ST_OK, st_array_append(&array, append_buf, 10), "append ok");
 
         if (c.remove_num == 1) {
@@ -382,61 +390,77 @@ st_test(array, remove) {
     }
 }
 
-int compare(const void *a, const void *b)
-{
-    int m = *(int *) a;
-    int n = *(int *) b;
-
-    return m-n;
-}
-
 st_test(array, sort) {
     st_array_t array = {0};
     int array_buf[20] = {0};
     int append_buf[10] = {8, 7, 5, 3, 4, 1, 2, 6, 9, 0};
 
-    st_ut_eq(ST_UNINITED, st_array_sort(&array, compare), "compare uninited array");
+    st_ut_eq(ST_UNINITED, st_array_sort(&array), "compare uninited array");
 
-    st_array_init_static(&array, 4, array_buf, 20);
+    st_array_init_static(&array, 4, array_buf, 20, compare);
     st_ut_eq(ST_OK, st_array_append(&array, append_buf, 10), "append ok");
 
-    st_ut_eq(ST_OK, st_array_sort(&array, compare), "sort ok");
+    st_ut_eq(ST_OK, st_array_sort(&array), "sort ok");
     st_ut_eq(10, array.current_cnt, "current_cnt right");
 
     for (int i = 0; i < array.current_cnt; i++) {
         st_ut_eq(i, *(int *)st_array_get(&array, i), "array elements is right");
     }
 
-    st_ut_eq(ST_ARG_INVALID, st_array_sort(NULL, compare), "sort array NULL");
-
-    st_ut_eq(ST_ARG_INVALID, st_array_sort(&array, NULL), "sort compare NULL");
+    st_ut_eq(ST_ARG_INVALID, st_array_sort(NULL), "sort array NULL");
 }
 
 st_test(array, bsearch) {
     st_array_t array = {0};
     int array_buf[20] = {0};
-    int append_buf[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+    int append_buf[10] = {2, 5, 10, 14, 19, 23, 26, 30, 40, 43};
     int tmp = 0;
 
-    st_ut_eq(NULL, st_array_bsearch(&array, &tmp, compare), "bsearch uninited array");
+    struct case_s {
+        int value;
+        int smaller_idx;
+        int equal_idx;
+        int bigger_idx;
+    } cases[] = {
+        {1, -1, -1, 0},
+        {2, 0, 0, 0},
+        {3, 0, -1, 1},
+        {5, 1, 1, 1},
+        {7, 1, -1, 2},
+        {10, 2, 2, 2},
+        {12, 2, -1, 3},
+        {14, 3, 3, 3},
+        {17, 3, -1, 4},
+        {19, 4, 4, 4},
+        {20, 4, -1, 5},
+        {23, 5, 5, 5},
+        {25, 5, -1, 6},
+        {26, 6, 6, 6},
+        {28, 6, -1, 7},
+        {30, 7, 7, 7},
+        {31, 7, -1, 8},
+        {40, 8, 8, 8},
+        {42, 8, -1, 9},
+        {43, 9, 9, 9},
+        {44, 9, -1, -1},
+    };
 
-    st_array_init_static(&array, 4, array_buf, 20);
+    st_ut_eq(ST_UNINITED, st_array_bsearch(&array, &tmp, ST_ARRAY_EQUAL), "bsearch uninited array");
+
+    st_array_init_static(&array, 4, array_buf, 20, compare);
     st_ut_eq(ST_OK, st_array_append(&array, append_buf, 10), "append ok");
 
-    for (int i = 0; i < 10; i++) {
-        tmp =  i;
-        st_ut_eq((char *)(array.start_addr + i * sizeof(int)),
-                 st_array_bsearch(&array, &tmp, compare), "bsearch ok");
+    for (int i = 0; i < st_nelts(cases); i++) {
+        st_typeof(cases[0]) c = cases[i];
+
+        st_ut_eq(c.equal_idx, st_array_bsearch(&array, &c.value, ST_ARRAY_EQUAL), "bsearch equal ok");
+        st_ut_eq(c.smaller_idx, st_array_bsearch(&array, &c.value, ST_ARRAY_EQUAL_OR_SMALLER), "bsearch smaller ok");
+        st_ut_eq(c.bigger_idx, st_array_bsearch(&array, &c.value, ST_ARRAY_EQUAL_OR_BIGGER), "bsearch bigger ok");
     }
 
     tmp = 10;
-    st_ut_eq(NULL, st_array_bsearch(&array, &tmp, compare), "bsearch ok");
-
-    st_ut_eq(NULL, st_array_bsearch(NULL, &tmp, compare), "bsearch array NULL");
-
-    st_ut_eq(NULL, st_array_bsearch(&array, NULL, compare), "bsearch element NULL");
-
-    st_ut_eq(NULL, st_array_bsearch(&array, &tmp, NULL), "bsearch compare NULL");
+    st_ut_eq(ST_ARG_INVALID, st_array_bsearch(NULL, &tmp, ST_ARRAY_EQUAL), "bsearch array NULL");
+    st_ut_eq(ST_ARG_INVALID, st_array_bsearch(&array, NULL, ST_ARRAY_EQUAL), "bsearch element NULL");
 }
 
 st_test(array, search) {
@@ -461,9 +485,9 @@ st_test(array, search) {
         {0, 9},
     };
 
-    st_ut_eq(NULL, st_array_indexof(&array, &tmp, compare), "indexof uninited array");
+    st_ut_eq(NULL, st_array_indexof(&array, &tmp), "indexof uninited array");
 
-    st_array_init_static(&array, 4, array_buf, 20);
+    st_array_init_static(&array, 4, array_buf, 20, compare);
     st_ut_eq(ST_OK, st_array_append(&array, append_buf, 10), "append ok");
 
     for (int i = 0; i < st_nelts(cases); i++) {
@@ -472,15 +496,14 @@ st_test(array, search) {
         tmp = c.value;
 
         st_ut_eq((char *)(array.start_addr + c.position * sizeof(int)),
-                 st_array_indexof(&array, &tmp, compare), "search ok");
+                 st_array_indexof(&array, &tmp), "search ok");
     }
 
     tmp = 10;
-    st_ut_eq(NULL, st_array_indexof(&array, &tmp, compare), "search ok");
+    st_ut_eq(NULL, st_array_indexof(&array, &tmp), "search ok");
 
-    st_ut_eq(NULL, st_array_indexof(NULL, &tmp, compare), "bsearch array NULL");
-    st_ut_eq(NULL, st_array_indexof(&array, NULL, compare), "bsearch element NULL");
-    st_ut_eq(NULL, st_array_indexof(&array, &tmp, NULL), "bsearch compare NULL");
+    st_ut_eq(NULL, st_array_indexof(NULL, &tmp), "bsearch array NULL");
+    st_ut_eq(NULL, st_array_indexof(&array, NULL), "bsearch element NULL");
 }
 
 st_ut_main;
