@@ -436,22 +436,39 @@ int st_rbtree_delete(st_rbtree_t *tree, st_rbtree_node_t *node)
     return ST_OK;
 }
 
-st_rbtree_node_t *s3_rbtree_search(st_rbtree_t *tree, st_rbtree_node_t *node) {
+st_rbtree_node_t *s3_rbtree_search(st_rbtree_t *tree, st_rbtree_node_t *node, int search_type) {
 
     st_rbtree_node_t *curr = tree->root;
     st_rbtree_node_t *sentinel = &tree->sentinel;
+
+    st_rbtree_node_t *smaller = NULL;
+    st_rbtree_node_t *bigger = NULL;
+
     int ret;
 
     while (curr != sentinel) {
 
         ret = tree->cmp(node, curr);
         if (ret < 0) {
+            bigger = curr;
             curr = curr->left;
         } else if (ret > 0) {
+            smaller = curr;
             curr = curr->right;
         } else {
-            return curr;
+            break;
         }
+    }
+
+    switch (search_type) {
+        case ST_RBTREE_EQUAL:
+            return curr != sentinel ? curr: NULL;
+
+        case ST_RBTREE_EQUAL_OR_SMALLER:
+            return curr != sentinel ? curr: smaller;
+
+        case ST_RBTREE_EQUAL_OR_BIGGER:
+            return curr != sentinel ? curr : bigger;
     }
 
     return NULL;
