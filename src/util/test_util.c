@@ -72,6 +72,31 @@ st_test(util, cmp) {
     }
 }
 
+st_test(util, st_align_prt) {
+
+    struct case_s {
+        uint8_t *inp;
+        int upto;
+        uint8_t *expected;
+    } cases[] = {
+        {(uint8_t *)0x00000000, 0, (uint8_t *)0x00000000},
+        {(uint8_t *)0x00000000, 1, (uint8_t *)0x00000000},
+        {(uint8_t *)0x00000000, 2, (uint8_t *)0x00000000},
+        {(uint8_t *)0x00000001, 2, (uint8_t *)0x00000002},
+        {(uint8_t *)0x00000002, 2, (uint8_t *)0x00000002},
+        {(uint8_t *)0x00000000, 4, (uint8_t *)0x00000000},
+        {(uint8_t *)0x00000001, 4, (uint8_t *)0x00000004},
+        {(uint8_t *)0x00000002, 4, (uint8_t *)0x00000004},
+        {(uint8_t *)0x00000003, 4, (uint8_t *)0x00000004},
+        {(uint8_t *)0x00000004, 4, (uint8_t *)0x00000004},
+    };
+
+    for (int i = 0; i < st_nelts(cases); i++) {
+        st_typeof(cases[0]) c = cases[i];
+        st_ut_eq(c.expected, (uint8_t *)st_align_prt(c.inp, c.upto), "");
+    }
+}
+
 /*
  * TODO
  *     offset
