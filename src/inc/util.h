@@ -20,14 +20,6 @@
          : (((i) + (upto) - 1) & (~((upto) - 1)))                             \
         )
 
-#define st_align_prt(ptr, upto)                                               \
-        ( (upto) == 0 ?                                                       \
-          (uintptr_t)(ptr) :                                                             \
-          ( ((uintptr_t)(ptr) + (uintptr_t)(upto) - 1)                        \
-            & ( ~((uintptr_t)(upto) - 1) )                                    \
-          )                                                                   \
-        )
-
 #define st_offsetof(tp, field) ( (size_t)&((tp*)NULL)->field )
 #define st_by_offset(p, offset) &((char*)(p))[ (offset) ]
 #define st_owner(p, tp, field) ((void*)(st_by_offset(p, - st_offsetof(tp, field))))

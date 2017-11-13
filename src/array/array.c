@@ -139,85 +139,99 @@ int st_array_remove_many(st_array_t *array, size_t index, size_t cnt)
     return ST_OK;
 }
 
-int st_array_sort(st_array_t *array)
+int st_array_sort(st_array_t *array, st_array_compare_f compare)
 {
     st_must(array != NULL, ST_ARG_INVALID);
     st_must(array->inited == 1, ST_UNINITED);
-    st_must(array->compare != NULL, ST_ARG_INVALID);
 
-    qsort(array->start_addr, array->current_cnt, array->element_size, array->compare);
+    st_array_compare_f cmp = compare != NULL ? compare : array->compare;
+    st_must(cmp != NULL, ST_ARG_INVALID);
+
+    qsort(array->start_addr, array->current_cnt, array->element_size, cmp);
 
     return ST_OK;
 }
 
-void * st_array_indexof(st_array_t *array, void *element)
-{
-    st_must(array != NULL, NULL);
-    st_must(array->inited == 1, NULL);
-    st_must(array->compare != NULL, NULL);
-    st_must(element != NULL, NULL);
-
-    void *curr;
-
-    for (int i = 0; i < array->current_cnt; i++) {
-        curr = st_array_get(array, i);
-
-        if (array->compare(element, curr) == 0) {
-            return curr;
-        }
-    }
-
-    return NULL;
-}
-
-int st_array_bsearch(st_array_t *array, void *element, int search_type)
+int st_array_indexof(st_array_t *array, void *element,
+        st_array_compare_f compare, size_t *idx)
 {
     st_must(array != NULL, ST_ARG_INVALID);
     st_must(array->inited == 1, ST_UNINITED);
-    st_must(array->compare != NULL, ST_ARG_INVALID);
     st_must(element != NULL, ST_ARG_INVALID);
 
-    void *curr;
-    int idx, start, end, smaller, bigger;
-    int ret;
+    st_array_compare_f cmp = compare != NULL ? compare : array->compare;
+    st_must(cmp != NULL, ST_ARG_INVALID);
 
-    start = 0;
-    end = array->current_cnt - 1;
+    for (size_t i = 0; i < array->current_cnt; i++) {
 
-    while (start <= end) {
-
-        idx = (start + end) / 2;
-        curr = st_array_get(array, idx);
-
-        ret = array->compare(element, curr);
-
-        if (ret == 0) {
-            return idx;
-        } else if (ret < 0) {
-            end = idx - 1;
-        } else {
-            start = idx + 1;
+        if (cmp(element, st_array_get(array, i)) == 0) {
+            *idx = i;
+            return ST_OK;
         }
     }
 
-    if (search_type == ST_ARRAY_EQUAL) {
-        return -1;
+    return ST_NOT_FOUND;
+}
+
+int st_array_bsearch_left(st_array_t *array, void *element,
+        st_array_compare_f compare, size_t *idx)
+{
+    st_must(array != NULL, ST_ARG_INVALID);
+    st_must(array->inited == 1, ST_UNINITED);
+    st_must(element != NULL, ST_ARG_INVALID);
+
+    st_array_compare_f cmp = compare != NULL ? compare : array->compare;
+    st_must(cmp != NULL, ST_ARG_INVALID);
+
+    int ret;
+    size_t mid, start, end;
+
+    start = 0;
+    end = array->current_cnt;
+
+    while (start < end) {
+        mid = (start + end) / 2;
+
+        ret = cmp(element, st_array_get(array, mid));
+        if (ret > 0) {
+            start = mid + 1;
+        } else {
+            end = mid;
+        }
     }
 
-    if (end < 0) {
-        smaller = -1;
-        bigger = start;
-    } else if (start > array->current_cnt - 1) {
-        smaller = end;
-        bigger = -1;
-    } else {
-        smaller = end;
-        bigger = start;
+    *idx = start;
+
+    return ST_OK;
+}
+
+int st_array_bsearch_right(st_array_t *array, void *element,
+        st_array_compare_f compare, size_t *idx)
+{
+    st_must(array != NULL, ST_ARG_INVALID);
+    st_must(array->inited == 1, ST_UNINITED);
+    st_must(element != NULL, ST_ARG_INVALID);
+
+    st_array_compare_f cmp = compare != NULL ? compare : array->compare;
+    st_must(cmp != NULL, ST_ARG_INVALID);
+
+    int ret;
+    size_t mid, start, end;
+
+    start = 0;
+    end = array->current_cnt;
+
+    while (start < end) {
+        mid = (start + end) / 2;
+
+        ret = cmp(element, st_array_get(array, mid));
+        if (ret < 0) {
+            end = mid;
+        } else {
+            start = mid + 1;
+        }
     }
 
-    if (search_type == ST_ARRAY_EQUAL_OR_SMALLER) {
-        return smaller;
-    } else {
-        return bigger;
-    }
+    *idx = start;
+    return start;
 }

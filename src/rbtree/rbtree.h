@@ -11,12 +11,6 @@ typedef struct st_rbtree_node_s  st_rbtree_node_t;
 typedef struct st_rbtree_s  st_rbtree_t;
 typedef int (*st_rbtree_compare_pt) (st_rbtree_node_t *a, st_rbtree_node_t *b);
 
-enum {
-    ST_RBTREE_EQUAL,
-    ST_RBTREE_EQUAL_OR_SMALLER,
-    ST_RBTREE_EQUAL_OR_BIGGER,
-};
-
 struct st_rbtree_node_s {
     st_rbtree_node_t *left;
     st_rbtree_node_t *right;
@@ -36,8 +30,10 @@ int st_rbtree_delete(st_rbtree_t *tree, st_rbtree_node_t *node);
 
 st_rbtree_node_t * st_rbtree_left_most(st_rbtree_t *tree);
 st_rbtree_node_t * st_rbtree_right_most(st_rbtree_t *tree);
-st_rbtree_node_t *s3_rbtree_search(st_rbtree_t *tree,
-                                   st_rbtree_node_t *node, int search_type);
+
+st_rbtree_node_t *s3_rbtree_search_eq(st_rbtree_t *tree, st_rbtree_node_t *node);
+st_rbtree_node_t *s3_rbtree_search_le(st_rbtree_t *tree, st_rbtree_node_t *node);
+st_rbtree_node_t *s3_rbtree_search_ge(st_rbtree_t *tree, st_rbtree_node_t *node);
 
 static inline void st_rbtree_red(st_rbtree_node_t *node) {
     node->color = 1;
