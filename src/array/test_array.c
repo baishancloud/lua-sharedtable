@@ -29,7 +29,7 @@ st_test(array, static_array_init) {
     struct case_s {
         st_array_t *array;
         int total_count;
-        void * start_addr;
+        void *start_addr;
         int expect_ret;
     } cases[] = {
         {NULL, 10, array_buf, ST_ARG_INVALID},
@@ -58,7 +58,7 @@ st_test(array, static_array_init) {
     }
 }
 
-void * _realloc(void *pool, void *ptr, size_t size) {
+void *_realloc(void *pool, void *ptr, size_t size) {
     return realloc(ptr, size);
 }
 
@@ -158,7 +158,7 @@ st_test(array, destroy) {
 st_test(array, dynamic_array_expand) {
     st_array_t array = {0};
     int append_buf[66] = {0};
-    void * prev_start = NULL;
+    void *prev_start = NULL;
     st_callback_memory_t callback = test_callback_inited;
 
     struct case_s {
@@ -262,7 +262,7 @@ st_test(array, static_array_insert) {
     int insert_buf[11] = {20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30};
 
     struct case_s {
-        int insert_index;
+        int insert_idx;
         int insert_num;
         int expect_curr_cnt;
         int expect_total_cnt;
@@ -289,9 +289,9 @@ st_test(array, static_array_insert) {
         st_ut_eq(ST_OK, st_array_append(&array, append_buf, 10), "append ok");
 
         if (c.insert_num == 1) {
-            ret = st_array_insert(&array, c.insert_index, insert_buf);
+            ret = st_array_insert(&array, c.insert_idx, insert_buf);
         } else {
-            ret = st_array_insert(&array, c.insert_index, insert_buf, c.insert_num);
+            ret = st_array_insert(&array, c.insert_idx, insert_buf, c.insert_num);
         }
 
         st_ut_eq(c.expect_curr_cnt, array.current_cnt, "array current_cnt is right");
@@ -304,11 +304,11 @@ st_test(array, static_array_insert) {
         }
 
         for (int j = 0; j < array.current_cnt; j++) {
-            if (j < c.insert_index) {
+            if (j < c.insert_idx) {
                 st_ut_eq(j, *(int *)st_array_get(&array, j), "array elements is right");
-            } else if (j < c.insert_index + c.insert_num) {
+            } else if (j < c.insert_idx + c.insert_num) {
                 // insert value is begin with 20 plus
-                st_ut_eq(j - c.insert_index + 20, *(int *)st_array_get(&array, j), "array elements is right");
+                st_ut_eq(j - c.insert_idx + 20, *(int *)st_array_get(&array, j), "array elements is right");
             } else {
                 st_ut_eq(j - c.insert_num, *(int *)st_array_get(&array, j), "array elements is right");
             }
@@ -344,7 +344,7 @@ st_test(array, remove) {
     int append_buf[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 
     struct case_s {
-        int remove_index;
+        int remove_idx;
         int remove_num;
         int expect_curr_cnt;
         int expect_total_cnt;
@@ -372,9 +372,9 @@ st_test(array, remove) {
         st_ut_eq(ST_OK, st_array_append(&array, append_buf, 10), "append ok");
 
         if (c.remove_num == 1) {
-            ret = st_array_remove(&array, c.remove_index);
+            ret = st_array_remove(&array, c.remove_idx);
         } else {
-            ret = st_array_remove(&array, c.remove_index, c.remove_num);
+            ret = st_array_remove(&array, c.remove_idx, c.remove_num);
         }
 
         st_ut_eq(c.expect_curr_cnt, array.current_cnt, "array current_cnt is right");
@@ -387,7 +387,7 @@ st_test(array, remove) {
         }
 
         for (int j = 0; j < array.current_cnt; j++) {
-            if (j < c.remove_index) {
+            if (j < c.remove_idx) {
                 st_ut_eq(j, *(int *)st_array_get(&array, j), "array elements is right");
             } else {
                 st_ut_eq(j + c.remove_num, *(int *)st_array_get(&array, j), "array elements is right");
@@ -447,7 +447,7 @@ st_test(array, bsearch_left_right) {
         {45, 10, 10, ST_NOT_FOUND },
     };
 
-    size_t idx;
+    ssize_t idx;
 
     st_ut_eq(ST_UNINITED, st_array_bsearch_left(&array, &tmp, NULL, &idx), "bsearch uninited array");
     st_ut_eq(ST_UNINITED, st_array_bsearch_right(&array, &tmp, NULL, &idx), "bsearch uninited array");
@@ -495,7 +495,7 @@ st_test(array, indexof) {
         {0, 9},
     };
 
-    size_t idx;
+    ssize_t idx;
 
     st_ut_eq(ST_UNINITED, st_array_indexof(&array, &tmp, NULL, &idx), "indexof uninited array");
 
