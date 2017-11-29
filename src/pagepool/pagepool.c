@@ -10,7 +10,7 @@ static int st_pagepool_cmp_region_addr(const void *a, const void *b)
 
 static int st_pagepool_add_region(st_pagepool_t *pool, uint8_t *region)
 {
-    size_t idx;
+    ssize_t idx;
     int ret;
 
     ret = st_robustlock_lock(&pool->regions_lock);
@@ -35,7 +35,7 @@ quit:
 static int st_pagepool_remove_region(st_pagepool_t *pool, uint8_t *region)
 {
     int ret;
-    size_t idx;
+    ssize_t idx;
 
     ret = st_robustlock_lock(&pool->regions_lock);
     if (ret != ST_OK) {
@@ -57,7 +57,7 @@ quit:
 static int st_pagepool_get_region(st_pagepool_t *pool, uint8_t *addr, uint8_t **region)
 {
     uint8_t *reg;
-    size_t idx;
+    ssize_t idx;
     int ret;
 
     ret = st_robustlock_lock(&pool->regions_lock);
@@ -429,7 +429,7 @@ int st_pagepool_page_to_addr(st_pagepool_t *pool, st_pagepool_page_t *page,
     st_must(addr != NULL, ST_ARG_INVALID);
 
     // no need to check idx range, if page invalid, the region element will cause core
-    size_t idx = ((uint8_t *)page - page->region) / sizeof(st_pagepool_page_t);
+    ssize_t idx = ((uint8_t *)page - page->region) / sizeof(st_pagepool_page_t);
 
     uint8_t *base = page->region + pool->space_base_offset;
     *addr = base + idx * pool->page_size;
