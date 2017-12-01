@@ -7,6 +7,7 @@
 #include <sys/ipc.h>
 #include <time.h>
 #include <stdlib.h>
+#include <sched.h>
 
 #include "atomic.h"
 #include "inc/err.h"
@@ -37,6 +38,18 @@ void *alloc_buf(ssize_t size)
 void free_buf(void *addr, ssize_t size)
 {
     munmap(addr, size);
+}
+
+void set_process_to_cpu(int cpu_id)
+{
+    int cpu_count = sysconf(_SC_NPROCESSORS_CONF);
+
+    cpu_set_t set;
+
+    CPU_ZERO(&set);
+    CPU_SET(cpu_id % cpu_count, &set);
+
+    sched_setaffinity(0, sizeof(set), &set);
 }
 
 int wait_children(int *pids, int pid_cnt) {
@@ -231,6 +244,7 @@ int test_add_sub_in_process(int64_t init_v, int64_t step_v, int op)
         child = fork();
 
         if (child == 0) {
+            set_process_to_cpu(i);
 
             struct sembuf sem = {.sem_num = 0, .sem_op = -1, .sem_flg = SEM_UNDO};
             ret = semop(sem_id, &sem, 1);
@@ -344,6 +358,7 @@ st_test(atomic, store_load_in_multi_process) {
         child = fork();
 
         if (child == 0) {
+            set_process_to_cpu(i);
 
             for (int j = 0; j < 10000; j++) {
                 st_atomic_store(value, store_values[i%5]);
@@ -360,6 +375,7 @@ st_test(atomic, store_load_in_multi_process) {
         child = fork();
 
         if (child == 0) {
+            set_process_to_cpu(i);
 
             int64_t v;
             int found = 0;
@@ -406,6 +422,7 @@ st_test(atomic, swap_in_multi_process) {
         child = fork();
 
         if (child == 0) {
+            set_process_to_cpu(i);
 
             for (int j = 0; j < 10000; j++) {
                 st_atomic_swap(value, store_values[i%5]);

@@ -4,6 +4,7 @@
 #include "unittest/unittest.h"
 #include <sys/mman.h>
 #include <sys/wait.h>
+#include <sched.h>
 
 #include <sys/sem.h>
 #include <sys/ipc.h>
@@ -28,6 +29,18 @@ void *alloc_buf(ssize_t size)
 void free_buf(void *addr, ssize_t size)
 {
     munmap(addr, size);
+}
+
+void set_process_to_cpu(int cpu_id)
+{
+    int cpu_count = sysconf(_SC_NPROCESSORS_CONF);
+
+    cpu_set_t set;
+
+    CPU_ZERO(&set);
+    CPU_SET(cpu_id % cpu_count, &set);
+
+    sched_setaffinity(0, sizeof(set), &set);
 }
 
 int init_pagepool(st_pagepool_t *pool, uint8_t *base,
@@ -519,6 +532,7 @@ st_test(pagepool, free_in_multi_region) {
     free_buf(buf, 655360);
 }
 
+
 st_test(pagepool, alloc_in_multi_process) {
 
     int child;
@@ -541,6 +555,8 @@ st_test(pagepool, alloc_in_multi_process) {
         child = fork();
 
         if (child == 0) {
+            set_process_to_cpu(i);
+
             struct sembuf sem = {.sem_num = 0, .sem_op = -1, .sem_flg = SEM_UNDO};
             st_ut_ne(-1, semop(sem_id, &sem, 1), "");
 
@@ -584,6 +600,8 @@ st_test(pagepool, alloc_free_in_multi_process) {
         child = fork();
 
         if (child == 0) {
+
+            set_process_to_cpu(i);
 
             int alloc_cnt, ret;
             st_pagepool_page_t* pages[10] = {0};
