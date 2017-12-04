@@ -307,11 +307,11 @@ int test_add_sub_in_process(int64_t init_v, int64_t step_v, int op)
                         break;
 
                     case ST_ATOMIC_INC:
-                        st_atomic_inc(value, step_v);
+                        st_atomic_incr(value, step_v);
                         break;
 
                     case ST_ATOMIC_DEC:
-                        st_atomic_dec(value, step_v);
+                        st_atomic_decr(value, step_v);
                         break;
                 }
             }
