@@ -29,12 +29,12 @@ void free_buf(void *addr, ssize_t size) {
 }
 
 void set_process_to_cpu(int cpu_id) {
-    int cpu_count = sysconf(_SC_NPROCESSORS_CONF);
+    int cpu_cnt = sysconf(_SC_NPROCESSORS_CONF);
 
     cpu_set_t set;
 
     CPU_ZERO(&set);
-    CPU_SET(cpu_id % cpu_count, &set);
+    CPU_SET(cpu_id % cpu_cnt, &set);
 
     sched_setaffinity(0, sizeof(set), &set);
 }
@@ -99,18 +99,10 @@ int check_pages(st_pagepool_page_t *pages, uint8_t *region, int cnt, int state) 
     return ST_OK;
 }
 
-int meta_use_page_count(ssize_t region_size) {
+int meta_used_page_cnt(ssize_t region_size) {
     int pages_per_region = region_size / (sizeof(st_pagepool_page_t) + 4096);
 
-    int size = pages_per_region * sizeof(st_pagepool_page_t);
-
-    int count = size / 4096;
-
-    if (size % 4096) {
-        count++;
-    }
-
-    return count;
+    return region_size / 4096 - pages_per_region;
 }
 
 st_test(pagepool, init) {
@@ -153,7 +145,7 @@ st_test(pagepool, init) {
         st_ut_eq(c.page_size, pool.page_size, "");
         st_ut_eq(c.region_size, pool.region_size, "");
 
-        int expect_pages = c.region_size / c.page_size - meta_use_page_count(c.region_size);
+        int expect_pages = c.region_size / c.page_size - meta_used_page_cnt(c.region_size);
 
         st_ut_eq(expect_pages, pool.pages_per_region, "");
     }
@@ -278,8 +270,8 @@ st_test(pagepool, free) {
         {7, 0, {}},
     };
 
-    // in one region 30 pages can use, another one use to store page_t
-    init_pagepool(&pool, buf, 655360, 31 * 4096);
+    // in one region 30 pages can use, another two use to store page_t
+    init_pagepool(&pool, buf, 655360, 32 * 4096);
 
     for (int i = 0; i < st_nelts(allocs); i++) {
         st_ut_eq(ST_OK, st_pagepool_alloc_pages(&pool, allocs[i].cnt, &allocs[i].pages), "");
@@ -405,8 +397,8 @@ st_test(pagepool, free_same_page_cnt) {
 
     uint8_t *buf = alloc_buf(655360);
 
-    // in one region 29 pages can use, another one use to store page_t
-    init_pagepool(&pool, buf, 655360, 30 * 4096);
+    // in one region 29 pages can use, another two use to store page_t
+    init_pagepool(&pool, buf, 655360, 31 * 4096);
 
     for (int i = 0; i < 19; i++) {
         if (i % 2 == 0) {
@@ -447,7 +439,7 @@ st_test(pagepool, alloc_same_page_cnt) {
     st_pagepool_page_t *pages[10] = {0};
 
     // in one region 29 pages can use, another two pages use to store page_t
-    init_pagepool(&pool, buf, 655360, 30 * 4096);
+    init_pagepool(&pool, buf, 655360, 31 * 4096);
 
     for (int i = 0; i < 19; i++) {
         if (i % 2 == 0) {
@@ -657,7 +649,7 @@ st_test(pagepool, page_to_addr) {
     st_pagepool_page_t *pages;
     st_pagepool_t pool;
 
-    ssize_t region_size = 31 * 4096;
+    ssize_t region_size = 32 * 4096;
     uint8_t *region_end, *page_addr;
 
     uint8_t *buf = alloc_buf(655360);
@@ -686,7 +678,7 @@ st_test(pagepool, addr_to_page) {
     st_pagepool_page_t *page, *pages;
     st_pagepool_t pool;
 
-    ssize_t region_size = 31 * 4096;
+    ssize_t region_size = 32 * 4096;
     uint8_t *region_end, *page_addr;
 
     uint8_t *buf = alloc_buf(655360);

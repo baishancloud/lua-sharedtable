@@ -26,28 +26,26 @@ typedef struct st_pagepool_page_s st_pagepool_page_t;
 typedef struct st_pagepool_s st_pagepool_t;
 
 struct st_pagepool_page_s {
-    union {
-        struct {
-            /* store slab chunk state */
-            uint64_t bitmap[ST_PAGEPOOL_MAX_SLAB_CHUNK_CNT];
-            int32_t chunk_size;
-            /**
-             * set value when slab alloc pages from pagepool.
-             * clear value when slab free pages to pagepool.
-             *
-             * master page: addr of slab group which it belongs to
-             * slave pages: addr of master page
-             *
-             * Note:
-             *    size of [rbnode] is smaller than [bitmap],
-             *    so [addr] is fully controlled by slab
-             */
-            void *addr;
-        } slab; /* for slab module use */
 
-        st_rbtree_node_t rbnode; /* pool free_pages tree node
-                                  * only master use */
-    };
+    struct {
+        /* store slab chunk state */
+        uint64_t bitmap[ST_PAGEPOOL_MAX_SLAB_CHUNK_CNT];
+        int32_t obj_size;
+        /**
+            * set value when slab alloc pages from pagepool.
+            * clear value when slab free pages to pagepool.
+            *
+            * master page: addr of slab group which it belongs to
+            * slave pages: addr of master page
+            */
+        union {
+            void *master;
+            void *group;
+        };
+    } slab; /* for slab module use */
+
+    st_rbtree_node_t rbnode; /* pool free_pages tree node
+                              * only master use */
 
     st_list_t lnode; /* same compound_page_cnt pages list
                       * if page in tree, lnode is list's head
