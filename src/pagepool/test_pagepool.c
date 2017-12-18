@@ -1,5 +1,3 @@
-#define ST_UNIT_TEST
-
 #include "pagepool.h"
 #include "unittest/unittest.h"
 #include <sys/mman.h>
