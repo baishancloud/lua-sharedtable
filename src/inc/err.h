@@ -13,6 +13,7 @@
   (ST_AGAIN),                 \
   (ST_CHKSUM),                \
   (ST_DUP),                   \
+  (ST_EXISTED),               \
   (ST_EOF),                   \
   (ST_FIN),                   \
   (ST_INITTWICE),             \
