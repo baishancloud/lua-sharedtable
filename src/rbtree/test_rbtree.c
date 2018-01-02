@@ -118,31 +118,32 @@ st_test(rbtree, search) {
 
     struct case_s {
         int key;
-        int smaller_key;
+        int le_key;
         int equal_key;
+        int ge_key;
         int bigger_key;
     } cases[] = {
-        {1, -1, -1, 2},
-        {2, 2, 2, 2},
-        {3, 2, -1, 5},
-        {5, 5, 5, 5},
-        {7, 5, -1, 10},
-        {10, 10, 10, 10},
-        {12, 10, -1, 14},
-        {14, 14, 14, 14},
-        {17, 14, -1, 19},
-        {19, 19, 19, 19},
-        {20, 19, -1, 23},
-        {23, 23, 23, 23},
-        {25, 23, -1, 26},
-        {26, 26, 26, 26},
-        {28, 26, -1, 30},
-        {30, 30, 30, 30},
-        {31, 30, -1, 40},
-        {40, 40, 40, 40},
-        {42, 40, -1, 43},
-        {43, 43, 43, 43},
-        {44, 43, -1, -1},
+        {1, -1, -1, 2, 2},
+        {2, 2, 2, 2, 5},
+        {3, 2, -1, 5, 5},
+        {5, 5, 5, 5, 10},
+        {7, 5, -1, 10, 10},
+        {10, 10, 10, 10, 14},
+        {12, 10, -1, 14, 14},
+        {14, 14, 14, 14, 19},
+        {17, 14, -1, 19, 19},
+        {19, 19, 19, 19, 23},
+        {20, 19, -1, 23, 23},
+        {23, 23, 23, 23, 26},
+        {25, 23, -1, 26, 26},
+        {26, 26, 26, 26, 30},
+        {28, 26, -1, 30, 30},
+        {30, 30, 30, 30, 40},
+        {31, 30, -1, 40, 40},
+        {40, 40, 40, 40, 43},
+        {42, 40, -1, 43, 43},
+        {43, 43, 43, 43, -1},
+        {44, 43, -1, -1, -1},
     };
 
     st_rbtree_init(&tree, rbtree_cmp);
@@ -164,13 +165,20 @@ st_test(rbtree, search) {
         }
 
         obj = (test_object *)st_rbtree_search_le(&tree,  &tmp.rb_node);
-        if (c.smaller_key == -1) {
+        if (c.le_key == -1) {
             st_ut_eq(NULL, obj, "");
         } else {
-            st_ut_eq(c.smaller_key, obj->key, "");
+            st_ut_eq(c.le_key, obj->key, "");
         }
 
         obj = (test_object *)st_rbtree_search_ge(&tree,  &tmp.rb_node);
+        if (c.ge_key == -1) {
+            st_ut_eq(NULL, obj, "");
+        } else {
+            st_ut_eq(c.ge_key, obj->key, "");
+        }
+
+        obj = (test_object *)st_rbtree_search_bigger(&tree,  &tmp.rb_node);
         if (c.bigger_key == -1) {
             st_ut_eq(NULL, obj, "");
         } else {

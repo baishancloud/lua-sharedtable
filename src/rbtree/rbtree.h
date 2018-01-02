@@ -41,6 +41,7 @@ st_rbtree_node_t *st_rbtree_right_most(st_rbtree_t *tree);
 st_rbtree_node_t *st_rbtree_search_eq(st_rbtree_t *tree, st_rbtree_node_t *node);
 st_rbtree_node_t *st_rbtree_search_le(st_rbtree_t *tree, st_rbtree_node_t *node);
 st_rbtree_node_t *st_rbtree_search_ge(st_rbtree_t *tree, st_rbtree_node_t *node);
+st_rbtree_node_t *st_rbtree_search_bigger(st_rbtree_t *tree, st_rbtree_node_t *node);
 
 /** Note:
  *    there is no check for original node,

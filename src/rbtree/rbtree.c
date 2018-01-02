@@ -508,6 +508,38 @@ st_rbtree_node_t *st_rbtree_search_ge(st_rbtree_t *tree, st_rbtree_node_t *node)
     return curr != sentinel ? curr : bigger;
 }
 
+st_rbtree_node_t *st_rbtree_search_bigger(st_rbtree_t *tree, st_rbtree_node_t *node) {
+
+    st_must(tree != NULL, NULL);
+    st_must(node != NULL, NULL);
+
+    st_rbtree_node_t *curr = tree->root;
+    st_rbtree_node_t *sentinel = &tree->sentinel;
+
+    st_rbtree_node_t *bigger = NULL;
+
+    int ret;
+
+    while (curr != sentinel) {
+
+        ret = tree->cmp(node, curr);
+        if (ret < 0) {
+            bigger = curr;
+            curr = curr->left;
+        } else if (ret > 0) {
+            curr = curr->right;
+        } else {
+            break;
+        }
+    }
+
+    if (curr == sentinel || curr->right == sentinel) {
+        return bigger;
+    } else {
+        return get_left_most(curr->right, sentinel);
+    }
+}
+
 int
 st_rbtree_replace(st_rbtree_t *tree,
                   st_rbtree_node_t *original,
