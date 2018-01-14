@@ -14,6 +14,7 @@
   (ST_CHKSUM),                \
   (ST_DUP),                   \
   (ST_EXISTED),               \
+  (ST_EMPTY),                 \
   (ST_EOF),                   \
   (ST_FIN),                   \
   (ST_INITTWICE),             \
@@ -23,6 +24,7 @@
   (ST_NOT_FOUND),             \
   (ST_NOT_READY),             \
   (ST_NOT_EQUAL),             \
+  (ST_NO_GC_DATA),            \
   (ST_OUT_OF_ORDER),          \
   (ST_OUT_OF_MEMORY),         \
   (ST_OUT_OF_RANGE),          \
