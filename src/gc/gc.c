@@ -324,13 +324,24 @@ int st_gc_add_root(st_gc_t *gc, st_gc_head_t *gc_head) {
     st_must(gc != NULL, ST_ARG_INVALID);
     st_must(gc_head != NULL, ST_ARG_INVALID);
 
+    ssize_t idx;
+
     int ret = st_robustlock_lock(&gc->lock);
     if (ret != ST_OK) {
         return ret;
     }
 
-    ret = st_array_append(&gc->roots, &gc_head);
+    ret = st_array_bsearch_right(&gc->roots, &gc_head, NULL, &idx);
+    if (ret == ST_OK) {
+        ret = ST_EXISTED;
+        goto quit;
+    } else if (ret != ST_NOT_FOUND) {
+        goto quit;
+    }
 
+    ret = st_array_insert(&gc->roots, idx, &gc_head);
+
+quit:
     st_robustlock_unlock_err_abort(&gc->lock);
     return ret;
 }
