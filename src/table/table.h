@@ -23,24 +23,11 @@ typedef struct st_table_pool_s st_table_pool_t;
 
 typedef int (*st_table_visit_f)(st_str_t value, void *arg);
 
-#define ST_TABLE_VALUE_TYPE_LEN (int64_t)sizeof(st_table_value_type_t)
-
-typedef enum st_table_value_type_e {
-    ST_TABLE_VALUE_TYPE_TABLE = 0x01,
-    //TODO shulong add other types
-
-} st_table_value_type_t;
-
 struct st_table_element_s {
     // used for table rbtree
     st_rbtree_node_t rbnode;
 
-    // key used to identity value, key is no type, user should interpret it
     st_str_t key;
-
-    // value contain type and user data
-    // front ST_TABLE_VALUE_TYPE_LEN bytes store value type and next bytes store user data.
-    // value => | TYPE | USER VALUE |
     st_str_t value;
 
     /* space to store key and value */
@@ -69,6 +56,8 @@ struct st_table_pool_s {
 
     st_gc_t gc;
 
+    int run_gc_periodical;
+
     // current tables cnt
     int64_t table_cnt;
 };
@@ -77,16 +66,8 @@ static inline void st_table_init_iter(st_table_iter_t *iter) {
     *iter = NULL;
 }
 
-static inline st_table_value_type_t st_table_get_value_type(st_str_t value) {
-    return *(st_table_value_type_t *)(value.bytes);
-}
-
-static inline int st_table_value_is_table(st_str_t value) {
-    return st_table_get_value_type(value) == ST_TABLE_VALUE_TYPE_TABLE;
-}
-
 static inline st_table_t *st_table_get_table_addr_from_value(st_str_t value) {
-    return *(st_table_t **)(value.bytes + ST_TABLE_VALUE_TYPE_LEN);
+    return *(st_table_t **)(value.bytes);
 }
 
 int st_table_new(st_table_pool_t *pool, st_table_t **table);

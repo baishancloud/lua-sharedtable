@@ -24,10 +24,10 @@ static int st_table_new_element(st_table_t *table, st_str_t key,
     e->rbnode = (st_rbtree_node_t)st_rbtree_node_empty;
 
     st_memcpy(e->kv_data, key.bytes, key.len);
-    e->key = (st_str_t)st_str_wrap(e->kv_data, key.len);
+    e->key = (st_str_t)st_str_wrap_common(e->kv_data, key.type, key.len);
 
     st_memcpy(e->kv_data + key.len, value.bytes, value.len);
-    e->value = (st_str_t)st_str_wrap(e->kv_data + key.len, value.len);
+    e->value = (st_str_t)st_str_wrap_common(e->kv_data + key.len, value.type, value.len);
 
     *elem = e;
 
@@ -53,7 +53,7 @@ static int st_table_add_element(st_table_t *table, st_table_element_t *elem) {
         goto quit;
     }
 
-    table->element_cnt++;
+    st_atomic_incr(&table->element_cnt, 1);
 
 quit:
     st_robustlock_unlock_err_abort(&table->lock);
@@ -87,7 +87,7 @@ static int st_table_remove_element(st_table_t *table, st_str_t key, st_table_ele
     }
 
     st_rbtree_delete(&table->elements, &(*removed)->rbnode);
-    table->element_cnt--;
+    st_atomic_decr(&table->element_cnt, 1);
 
 quit:
     st_robustlock_unlock_err_abort(&table->lock);
@@ -137,7 +137,7 @@ static int st_table_run_gc_if_needed(st_table_t *table) {
 
     st_gc_t *gc = &table->pool->gc;
 
-    if (gc->run_in_periodical == 1) {
+    if (table->pool->run_gc_periodical == 1) {
         return ST_OK;
     }
 
@@ -216,7 +216,7 @@ int st_table_remove_all_for_gc(st_table_t *table) {
         n = st_rbtree_left_most(&table->elements);
 
         st_rbtree_delete(&table->elements, n);
-        table->element_cnt--;
+        st_atomic_decr(&table->element_cnt, 1);
 
         e = st_owner(n, st_table_element_t, rbnode);
 
@@ -256,11 +256,11 @@ int st_table_remove_all(st_table_t *table) {
         n = st_rbtree_left_most(&table->elements);
 
         st_rbtree_delete(&table->elements, n);
-        table->element_cnt--;
+        st_atomic_decr(&table->element_cnt, 1);
 
         e = st_owner(n, st_table_element_t, rbnode);
 
-        if (st_table_value_is_table(e->value)) {
+        if (st_types_is_table(e->value.type)) {
             st_table_t *t = st_table_get_table_addr_from_value(e->value);
 
             ret = st_gc_push_to_sweep(&t->pool->gc, &t->gc_head);
@@ -332,7 +332,7 @@ int st_table_add_key_value(st_table_t *table, st_str_t key, st_str_t value) {
     st_must(table != NULL, ST_ARG_INVALID);
     st_must(table->inited, ST_UNINITED);
     st_must(key.bytes != NULL && key.len > 0, ST_ARG_INVALID);
-    st_must(value.bytes != NULL && value.len > ST_TABLE_VALUE_TYPE_LEN, ST_ARG_INVALID);
+    st_must(value.bytes != NULL && value.len > 0, ST_ARG_INVALID);
 
     st_table_element_t *elem = NULL;
 
@@ -341,7 +341,7 @@ int st_table_add_key_value(st_table_t *table, st_str_t key, st_str_t value) {
         return ret;
     }
 
-    if (st_table_value_is_table(value)) {
+    if (st_types_is_table(value.type)) {
         st_table_t *t = st_table_get_table_addr_from_value(value);
         st_gc_t *gc = &table->pool->gc;
 
@@ -393,7 +393,7 @@ int st_table_remove_key(st_table_t *table, st_str_t key) {
         return ret;
     }
 
-    if (st_table_value_is_table(removed->value)) {
+    if (st_types_is_table(removed->value.type)) {
         st_table_t *t = st_table_get_table_addr_from_value(removed->value);
 
         ret = st_gc_push_to_sweep(gc, &t->gc_head);
@@ -465,12 +465,13 @@ int st_table_pool_init(st_table_pool_t *pool, int run_gc_periodical) {
 
     st_must(pool != NULL, ST_ARG_INVALID);
 
-    int ret = st_gc_init(&pool->gc, run_gc_periodical);
+    int ret = st_gc_init(&pool->gc);
     if (ret != ST_OK) {
         return ret;
     }
 
     pool->table_cnt = 0;
+    pool->run_gc_periodical = run_gc_periodical;
 
     return ret;
 }

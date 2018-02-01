@@ -95,7 +95,7 @@ static void run_gc_one_round(st_gc_t *gc) {
     do {
         ret = st_gc_run(gc);
         st_assert(ret == ST_OK || ret == ST_NO_GC_DATA);
-    } while (gc->phase != ST_GC_PHASE_INITIAL);
+    } while (gc->begin);
 }
 
 void set_process_to_cpu(int cpu_id) {
@@ -144,8 +144,7 @@ st_test(table, new_release) {
     for (int i = 0; i < 100; i++) {
         st_str_t key = st_str_wrap(&i, sizeof(i));
 
-        // value_buf[0] store value type
-        value_buf[1] = i;
+        value_buf[0] = i;
         st_str_t value = st_str_wrap(value_buf, sizeof(value_buf));
 
         st_ut_eq(ST_OK, st_table_add_key_value(t, key, value), "");
@@ -185,7 +184,7 @@ st_test(table, add_value) {
     for (int i = 0; i < 100; i++) {
         st_str_t key = st_str_wrap(&i, sizeof(i));
 
-        value_buf[1] = i;
+        value_buf[0] = i;
         st_str_t value = st_str_wrap(value_buf, sizeof(value_buf));
 
         st_ut_eq(ST_OK, st_table_add_key_value(t, key, value), "");
@@ -235,7 +234,7 @@ st_test(table, remove_value) {
     for (int i = 0; i < 100; i++) {
         st_str_t key = st_str_wrap(&i, sizeof(i));
 
-        value_buf[1] = i;
+        value_buf[0] = i;
         st_str_t value = st_str_wrap(value_buf, sizeof(value_buf));
 
         st_table_add_key_value(t, key, value);
@@ -278,7 +277,7 @@ st_test(table, iter_next_value) {
     for (i = 0; i < 100; i++) {
         st_str_t key = st_str_wrap(&i, sizeof(i));
 
-        value_buf[1] = i;
+        value_buf[0] = i;
         st_str_t value = st_str_wrap(value_buf, sizeof(value_buf));
 
         st_table_add_key_value(t, key, value);
@@ -316,9 +315,8 @@ void add_sub_table(st_table_t *table, char *name, st_table_t *sub) {
     memcpy(key_buf, name, strlen(name));
     st_str_t key = st_str_wrap(key_buf, strlen(key_buf));
 
-    value_buf[0] = ST_TABLE_VALUE_TYPE_TABLE;
-    memcpy(value_buf + 1, &sub, (size_t)sizeof(sub));
-    st_str_t value = st_str_wrap(value_buf, sizeof(value_buf));
+    memcpy(value_buf, &sub, (size_t)sizeof(sub));
+    st_str_t value = st_str_wrap_common(value_buf, ST_TYPES_TABLE, sizeof(value_buf));
 
     st_assert(st_table_add_key_value(table, key, value) == ST_OK);
 }
@@ -494,6 +492,10 @@ static int add_tables(int process_id, st_table_t *root) {
         ret = st_table_get_value(root, key, &value);
         if (ret != ST_OK) {
             return ret;
+        }
+
+        if (value.type != ST_TYPES_TABLE) {
+            return ST_STATE_INVALID;
         }
 
         sprintf(key_buf, "%010d", process_id * 1000 + i);
