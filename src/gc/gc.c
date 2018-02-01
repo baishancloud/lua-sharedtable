@@ -21,7 +21,7 @@ static void st_gc_roots_to_mark_queue(st_gc_t *gc) {
 
 static int st_gc_table_to_mark_queue(st_str_t value, st_list_t *mark_queue) {
 
-    if (!st_table_value_is_table(value)) {
+    if (!st_types_is_table(value.type)) {
         return ST_OK;
     }
 
@@ -43,19 +43,15 @@ static int st_gc_table_to_mark_queue(st_str_t value, st_list_t *mark_queue) {
     return ST_OK;
 }
 
-static int st_gc_mark_reachable_tables(st_gc_t *gc) {
+static int st_gc_mark_reachable_tables(st_gc_t *gc, int *marked_cnt) {
 
-    int64_t start_tm = 0, curr_tm = 0;
+    int ret;
     st_table_t *t = NULL;
     st_list_t *node = NULL;
     st_gc_head_t *gc_head = NULL;
 
-    int ret = st_time_in_usec(&start_tm);
-    if (ret != ST_OK) {
-        return ret;
-    }
+    while (*marked_cnt < gc->mark_cnt_per_step) {
 
-    do {
         node = st_list_pop_first(&gc->mark_queue);
         if (node == NULL) {
             return ST_EMPTY;
@@ -71,19 +67,16 @@ static int st_gc_mark_reachable_tables(st_gc_t *gc) {
             return ret;
         }
 
-        ret = st_time_in_usec(&curr_tm);
-        if (ret != ST_OK) {
-            return ret;
-        }
-
-    } while (curr_tm - start_tm < ST_GC_MAX_TIME_IN_USEC);
+        // 1 is current table.
+        *marked_cnt = *marked_cnt + 1 + st_atomic_load(&t->element_cnt);
+    }
 
     return ST_OK;
 }
 
 static int st_gc_table_to_sweep_queue(st_str_t value, st_list_t *sweep_queue) {
 
-    if (!st_table_value_is_table(value)) {
+    if (!st_types_is_table(value.type)) {
         return ST_OK;
     }
 
@@ -105,9 +98,9 @@ static int st_gc_table_to_sweep_queue(st_str_t value, st_list_t *sweep_queue) {
     return ST_OK;
 }
 
-static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev) {
+static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev, int *marked_cnt) {
 
-    int64_t start_tm = 0, curr_tm = 0;
+    int ret;
     st_gc_head_t *gc_head = NULL;
     st_table_t *t = NULL;
     st_list_t *node = NULL, *sweep_queue = NULL;
@@ -118,12 +111,8 @@ static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev) {
         sweep_queue = &gc->sweep_queue;
     }
 
-    int ret = st_time_in_usec(&start_tm);
-    if (ret != ST_OK) {
-        return ret;
-    }
+    while (*marked_cnt < gc->mark_cnt_per_step) {
 
-    do {
         node = st_list_pop_first(sweep_queue);
         if (node == NULL) {
             return ST_EMPTY;
@@ -138,7 +127,7 @@ static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev) {
         } else if (gc_head->mark == st_gc_status_reachable(gc)) {
 
             if (!is_prev) {
-                st_list_insert_last(&gc->prev_sweep_queue, node);
+                st_list_insert_last(&gc->remained_queue, node);
             }
 
         } else {
@@ -151,31 +140,84 @@ static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev) {
             if (ret != ST_OK) {
                 return ret;
             }
+
+            *marked_cnt += st_atomic_load(&t->element_cnt);
         }
 
-        ret = st_time_in_usec(&curr_tm);
-        if (ret != ST_OK) {
-            return ret;
-        }
-
-    } while (curr_tm - start_tm < ST_GC_MAX_TIME_IN_USEC);
+        // add 1 is current table.
+        *marked_cnt += 1;
+    }
 
     return ST_OK;
 }
 
-static int st_gc_sweep_tables(st_gc_t *gc) {
+static int st_gc_mark_tables(st_gc_t *gc) {
 
-    int64_t start_tm = 0, curr_tm = 0;
-    st_list_t *node = NULL;
-    st_gc_head_t *gc_head = NULL;
-    st_table_t *t = NULL;
+    int err;
+    int marked_cnt = 0;
+    int64_t start_usec = 0, end_usec = 0;
 
-    int ret = st_time_in_usec(&start_tm);
+    int ret = st_time_in_usec(&start_usec);
     if (ret != ST_OK) {
         return ret;
     }
 
-    do {
+    // mark in mark_queue
+    ret = st_gc_mark_reachable_tables(gc, &marked_cnt);
+    if (ret == ST_OK) {
+        goto quit;
+    } else if (ret != ST_EMPTY) {
+        return ret;
+    }
+
+    // mark in prev_sweep_queue
+    ret = st_gc_mark_garbage_tables(gc, 1, &marked_cnt);
+    if (ret == ST_OK) {
+        goto quit;
+    } else if (ret != ST_EMPTY) {
+        return ret;
+    }
+
+    // mark in sweep_queue
+    ret = st_gc_mark_garbage_tables(gc, 0, &marked_cnt);
+    if (ret == ST_OK) {
+        goto quit;
+    } else if (ret != ST_EMPTY) {
+        return ret;
+    }
+
+quit:
+    err = st_time_in_usec(&end_usec);
+    if (err != ST_OK) {
+        return err;
+    }
+
+    if (marked_cnt > 0) {
+        float usec = st_max((float)(end_usec - start_usec) / marked_cnt, 0.01);
+        gc->mark_cnt_per_step = st_max(ST_GC_MAX_TIME_IN_USEC / usec, 1);
+    }
+
+    dd("mark use usec: %d, marked_cnt: %d, next mark_cnt_per_step: %d",
+       (int)(end_usec - start_usec), marked_cnt, gc->mark_cnt_per_step);
+
+    return ret;
+}
+
+static int st_gc_free_tables(st_gc_t *gc) {
+
+    int freed_cnt = 0;
+    int64_t start_usec = 0, end_usec = 0;
+    st_list_t *node = NULL;
+    st_gc_head_t *gc_head = NULL;
+    st_table_t *t = NULL;
+
+    int ret = st_time_in_usec(&start_usec);
+    if (ret != ST_OK) {
+        return ret;
+    }
+
+    while (freed_cnt < gc->free_cnt_per_step) {
+
         node = st_list_pop_first(&gc->garbage_queue);
         if (node == NULL) {
             return ST_EMPTY;
@@ -194,12 +236,21 @@ static int st_gc_sweep_tables(st_gc_t *gc) {
             return ret;
         }
 
-        ret = st_time_in_usec(&curr_tm);
-        if (ret != ST_OK) {
-            return ret;
-        }
+        freed_cnt = freed_cnt + 1 + st_atomic_load(&t->element_cnt);
+    }
 
-    } while (curr_tm - start_tm < ST_GC_MAX_TIME_IN_USEC);
+    ret = st_time_in_usec(&end_usec);
+    if (ret != ST_OK) {
+        return ret;
+    }
+
+    if (freed_cnt > 0) {
+        float usec = st_max((float)(end_usec - start_usec) / freed_cnt, 0.1);
+        gc->free_cnt_per_step = st_max(ST_GC_MAX_TIME_IN_USEC / usec, 1);
+    }
+
+    dd("free use usec: %d, freed_cnt: %d, next free_cnt_per_step: %d",
+       (int)(end_usec - start_usec), freed_cnt, gc->free_cnt_per_step);
 
     return ST_OK;
 }
@@ -213,71 +264,42 @@ int st_gc_run(st_gc_t *gc) {
         return ret;
     }
 
-    switch (gc->phase) {
+    if (!gc->begin) {
 
-        case ST_GC_PHASE_INITIAL:
+        if (st_list_empty(&gc->sweep_queue) && st_list_empty(&gc->prev_sweep_queue)) {
+            ret = ST_NO_GC_DATA;
+            goto quit;
+        }
 
-            if (gettimeofday(&gc->start_tm, NULL) != 0) {
-                ret = errno;
-                goto quit;
-            }
+        ret = st_time_in_usec(&gc->start_usec);
+        if (ret != ST_OK) {
+            goto quit;
+        }
 
-            if (st_list_empty(&gc->sweep_queue) && st_list_empty(&gc->prev_sweep_queue)) {
-                ret = ST_NO_GC_DATA;
-                goto quit;
-            }
+        st_gc_roots_to_mark_queue(gc);
 
-            st_gc_roots_to_mark_queue(gc);
-
-            gc->phase = ST_GC_PHASE_MARK_PREV_SWEEP;
-
-        case ST_GC_PHASE_MARK_PREV_SWEEP:
-
-            ret = st_gc_mark_reachable_tables(gc);
-            if (ret != ST_EMPTY) {
-                goto quit;
-            }
-
-            ret = st_gc_mark_garbage_tables(gc, 1);
-            if (ret != ST_EMPTY) {
-                goto quit;
-            }
-
-            gc->phase = ST_GC_PHASE_MARK_SWEEP;
-            ret = ST_OK;
-            break;
-
-        case ST_GC_PHASE_MARK_SWEEP:
-
-            ret = st_gc_mark_reachable_tables(gc);
-            if (ret != ST_EMPTY) {
-                goto quit;
-            }
-
-            ret = st_gc_mark_garbage_tables(gc, 0);
-            if (ret != ST_EMPTY) {
-                goto quit;
-            }
-
-            gc->phase = ST_GC_PHASE_SWEEP_GARBAGE;
-            ret = ST_OK;
-            break;
-
-        case ST_GC_PHASE_SWEEP_GARBAGE:
-
-            ret = st_gc_sweep_tables(gc);
-            if (ret != ST_EMPTY) {
-                goto quit;
-            }
-
-            if (gettimeofday(&gc->end_tm, NULL) != 0) {
-                ret = errno;
-            }
-
-            st_atomic_incr(&gc->round, 4);
-            gc->phase = ST_GC_PHASE_INITIAL;
-            ret = ST_OK;
+        gc->begin = 1;
     }
+
+    ret = st_gc_mark_tables(gc);
+    if (ret != ST_EMPTY) {
+        goto quit;
+    }
+
+    ret = st_gc_free_tables(gc);
+    if (ret != ST_EMPTY) {
+        goto quit;
+    }
+
+    st_list_join(&gc->prev_sweep_queue, &gc->remained_queue);
+
+    ret = st_time_in_usec(&gc->end_usec);
+    if (ret != ST_OK) {
+        goto quit;
+    }
+
+    st_atomic_incr(&gc->round, 4);
+    gc->begin = 0;
 
 quit:
     st_robustlock_unlock_err_abort(&gc->lock);
@@ -370,29 +392,32 @@ quit:
     return ret;
 }
 
-int st_gc_init(st_gc_t *gc, int run_in_periodical) {
+int st_gc_init(st_gc_t *gc) {
     st_must(gc != NULL, ST_ARG_INVALID);
-    st_must(run_in_periodical == 0 || run_in_periodical == 1, ST_ARG_INVALID);
 
     gc->round = 0;
-    gc->phase = ST_GC_PHASE_INITIAL;
-    gc->run_in_periodical = run_in_periodical;
+    gc->begin = 0;
+    gc->mark_cnt_per_step = 100;
+    gc->free_cnt_per_step = 50;
 
     st_list_init(&gc->mark_queue);
     st_list_init(&gc->prev_sweep_queue);
     st_list_init(&gc->sweep_queue);
     st_list_init(&gc->garbage_queue);
+    st_list_init(&gc->remained_queue);
 
-    if (gettimeofday(&gc->start_tm, NULL) != 0) {
-        return errno;
+    int ret = st_time_in_usec(&gc->start_usec);
+    if (ret != ST_OK) {
+        return ret;
     }
 
-    if (gettimeofday(&gc->end_tm, NULL) != 0) {
-        return errno;
+    ret = st_time_in_usec(&gc->end_usec);
+    if (ret != ST_OK) {
+        return ret;
     }
 
-    int ret = st_array_init_static(&gc->roots, sizeof(st_gc_head_t *),
-                                   gc->roots_data, ST_GC_MAX_ROOTS, st_gc_cmp_gc_head);
+    ret = st_array_init_static(&gc->roots, sizeof(st_gc_head_t *),
+                               gc->roots_data, ST_GC_MAX_ROOTS, st_gc_cmp_gc_head);
     if (ret != ST_OK) {
         return ret;
     }
@@ -423,7 +448,8 @@ int st_gc_destroy(st_gc_t *gc) {
     if (!st_list_empty(&gc->mark_queue) ||
             !st_list_empty(&gc->prev_sweep_queue) ||
             !st_list_empty(&gc->sweep_queue) ||
-            !st_list_empty(&gc->garbage_queue)) {
+            !st_list_empty(&gc->garbage_queue) ||
+            !st_list_empty(&gc->remained_queue)) {
 
         return ST_STATE_INVALID;
     }

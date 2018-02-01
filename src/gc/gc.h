@@ -18,13 +18,6 @@
 typedef struct st_gc_head_s st_gc_head_t;
 typedef struct st_gc_s st_gc_t;
 
-typedef enum st_gc_phase_e {
-    ST_GC_PHASE_INITIAL = 0x01,
-    ST_GC_PHASE_MARK_PREV_SWEEP,
-    ST_GC_PHASE_MARK_SWEEP,
-    ST_GC_PHASE_SWEEP_GARBAGE,
-} st_gc_phase_t;
-
 // each table has gc head, used for sweep unused table.
 struct st_gc_head_s {
     // used by mark_queue in gc struct.
@@ -38,12 +31,12 @@ struct st_gc_head_s {
 };
 
 struct st_gc_s {
-    // is a collection of items those are **root**s and should never be freed.
+    // is a collection of items those are roots and should never be freed.
     // A root item is where the mark-process starts.
     st_gc_head_t *roots_data[ST_GC_MAX_ROOTS];
     st_array_t roots;
 
-    // is queue of items to mark as `marked`.
+    // is queue of items to mark as marked.
     st_list_t mark_queue;
 
     // is queue of items those can not be decided whether it is a garbage in
@@ -53,38 +46,48 @@ struct st_gc_s {
     // is queue of items whose references are deleted one or more times.
     st_list_t sweep_queue;
 
-    // is queue of `garbage` item.
+    // is queue of garbage item.
     st_list_t garbage_queue;
 
-    // gc run in which phase.
-    int phase;
+    // reamined table, after curr round of gc, the tables will move into prev_sweep_queue.
+    st_list_t remained_queue;
 
     // a int number that indicates a complete gc.
     int64_t round;
 
     // gc run start time and end time.
-    struct timeval start_tm;
-    struct timeval end_tm;
+    int64_t start_usec;
+    int64_t end_usec;
 
-    // whether gc will be ran periodically.
-    int run_in_periodical;
+    // gc has began running
+    int begin;
+
+    // in one gc step can mark table elements count.
+    int mark_cnt_per_step;
+
+    // in one gc step can free table elements count.
+    int free_cnt_per_step;
 
     pthread_mutex_t lock;
 };
 
-// defined to be: `gc_round+0` or any int smaller than `gc_round`. Not yet scanned.
+// defined to be: gc_round+0 or any int smaller than gc_round. Not yet scanned.
 static inline int64_t st_gc_status_unknown(st_gc_t *gc) {
     return gc->round + 0;
 }
 
-// defined to be: `gc_round+1`. Reachable from one of the `roots`.
+// defined to be: gc_round+1, reachable from one of the roots.
 static inline int64_t st_gc_status_reachable(st_gc_t *gc) {
     return gc->round + 1;
 }
 
-// defined to be: `gc_round+2`. Confirmed to be unreachable from any `roots`.
+// defined to be: gc_round+2, confirmed to be unreachable from any roots.
 static inline int64_t st_gc_status_garbage(st_gc_t *gc) {
     return gc->round + 2;
+}
+
+static inline int st_gc_is_status_unknown(st_gc_t *gc, int64_t mark) {
+    return mark <= st_gc_status_unknown(gc);
 }
 
 static inline void st_gc_head_init(st_gc_t *gc, st_gc_head_t *gc_head) {
@@ -93,7 +96,7 @@ static inline void st_gc_head_init(st_gc_t *gc, st_gc_head_t *gc_head) {
     gc_head->mark = st_atomic_load(&gc->round);
 }
 
-int st_gc_init(st_gc_t *gc, int run_in_periodical);
+int st_gc_init(st_gc_t *gc);
 
 int st_gc_destroy(st_gc_t *gc);
 
