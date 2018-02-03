@@ -53,7 +53,7 @@ static int st_table_add_element(st_table_t *table, st_table_element_t *elem) {
         goto quit;
     }
 
-    st_atomic_incr(&table->element_cnt, 1);
+    table->element_cnt++;
 
 quit:
     st_robustlock_unlock_err_abort(&table->lock);
@@ -87,7 +87,7 @@ static int st_table_remove_element(st_table_t *table, st_str_t key, st_table_ele
     }
 
     st_rbtree_delete(&table->elements, &(*removed)->rbnode);
-    st_atomic_decr(&table->element_cnt, 1);
+    table->element_cnt--;
 
 quit:
     st_robustlock_unlock_err_abort(&table->lock);
@@ -173,7 +173,7 @@ int st_table_new(st_table_pool_t *pool, st_table_t **table) {
         return ret;
     }
 
-    st_atomic_incr(&pool->table_cnt, 1);
+    pool->table_cnt++;
 
     *table = t;
 
@@ -192,9 +192,44 @@ int st_table_release(st_table_t *table) {
         return ret;
     }
 
-    st_atomic_decr(&pool->table_cnt, 1);
+    pool->table_cnt--;
 
     return st_slab_obj_free(&pool->slab_pool, table);
+}
+
+static int st_table_remove_all_elements(st_table_t *table, st_rbtree_node_t *node,
+                                        int removed_to_gc) {
+
+    st_rbtree_node_t *sentinel = &table->elements.sentinel;
+
+    if (node == sentinel) {
+        return ST_OK;
+    }
+
+    int ret = st_table_remove_all_elements(table, node->left, removed_to_gc);
+    if (ret != ST_OK) {
+        return ret;
+    }
+
+    ret = st_table_remove_all_elements(table, node->right, removed_to_gc);
+    if (ret != ST_OK) {
+        return ret;
+    }
+
+    st_table_element_t *e = st_owner(node, st_table_element_t, rbnode);
+
+    if (removed_to_gc) {
+        if (st_types_is_table(e->value.type)) {
+            st_table_t *t = st_table_get_table_addr_from_value(e->value);
+
+            ret = st_gc_push_to_sweep(&t->pool->gc, &t->gc_head);
+            if (ret != ST_OK) {
+                return ret;;
+            }
+        }
+    }
+
+    return st_table_release_element(table, e);
 }
 
 // this function is only used for gc, other one please use st_table_remove_all.
@@ -203,28 +238,18 @@ int st_table_remove_all_for_gc(st_table_t *table) {
     st_must(table != NULL, ST_ARG_INVALID);
     st_must(table->inited, ST_UNINITED);
 
-    st_rbtree_node_t *n = NULL;
-    st_table_element_t *e = NULL;
-
     int ret = st_robustlock_lock(&table->lock);
     if (ret != ST_OK) {
         return ret;
     }
 
-    while (!st_rbtree_is_empty(&table->elements)) {
-
-        n = st_rbtree_left_most(&table->elements);
-
-        st_rbtree_delete(&table->elements, n);
-        st_atomic_decr(&table->element_cnt, 1);
-
-        e = st_owner(n, st_table_element_t, rbnode);
-
-        ret = st_table_release_element(table, e);
-        if (ret != ST_OK) {
-            goto quit;
-        }
+    ret = st_table_remove_all_elements(table, table->elements.root, 0);
+    if (ret != ST_OK) {
+        goto quit;
     }
+
+    table->elements.root = &table->elements.sentinel;
+    table->element_cnt = 0;
 
 quit:
     st_robustlock_unlock_err_abort(&table->lock);
@@ -236,8 +261,6 @@ int st_table_remove_all(st_table_t *table) {
     st_must(table != NULL, ST_ARG_INVALID);
     st_must(table->inited, ST_UNINITED);
 
-    st_rbtree_node_t *n = NULL;
-    st_table_element_t *e = NULL;
     st_gc_t *gc = &table->pool->gc;
 
     int ret = st_robustlock_lock(&gc->lock);
@@ -251,29 +274,13 @@ int st_table_remove_all(st_table_t *table) {
         return ret;
     }
 
-    while (!st_rbtree_is_empty(&table->elements)) {
-
-        n = st_rbtree_left_most(&table->elements);
-
-        st_rbtree_delete(&table->elements, n);
-        st_atomic_decr(&table->element_cnt, 1);
-
-        e = st_owner(n, st_table_element_t, rbnode);
-
-        if (st_types_is_table(e->value.type)) {
-            st_table_t *t = st_table_get_table_addr_from_value(e->value);
-
-            ret = st_gc_push_to_sweep(&t->pool->gc, &t->gc_head);
-            if (ret != ST_OK) {
-                goto quit;
-            }
-        }
-
-        ret = st_table_release_element(table, e);
-        if (ret != ST_OK) {
-            goto quit;
-        }
+    ret = st_table_remove_all_elements(table, table->elements.root, 1);
+    if (ret != ST_OK) {
+        goto quit;
     }
+
+    table->elements.root = &table->elements.sentinel;
+    table->element_cnt = 0;
 
 quit:
     st_robustlock_unlock_err_abort(&table->lock);
@@ -282,47 +289,6 @@ quit:
     if (ret == ST_OK) {
         return st_table_run_gc_if_needed(table);
     }
-
-    return ret;
-}
-
-static int st_table_foreach_elements(st_table_t *table, st_rbtree_node_t *node,
-                                     st_table_visit_f visit_func, void *arg) {
-
-    st_rbtree_node_t *sentinel = &table->elements.sentinel;
-
-    if (node == sentinel) {
-        return ST_OK;
-    }
-
-    int ret = st_table_foreach_elements(table, node->left, visit_func, arg);
-    if (ret != ST_OK) {
-        return ret;
-    }
-
-    st_table_element_t *e = st_owner(node, st_table_element_t, rbnode);
-
-    ret = visit_func(e->value, arg);
-    if (ret != ST_OK) {
-        return ret;
-    }
-
-    return st_table_foreach_elements(table, node->right, visit_func, arg);
-}
-
-int st_table_foreach(st_table_t *table, st_table_visit_f visit_func, void *arg) {
-
-    st_must(table != NULL, ST_ARG_INVALID);
-    st_must(table->inited, ST_UNINITED);
-
-    int ret = st_robustlock_lock(&table->lock);
-    if (ret != ST_OK) {
-        return ret;
-    }
-
-    ret = st_table_foreach_elements(table, table->elements.root, visit_func, arg);
-
-    st_robustlock_unlock_err_abort(&table->lock);
 
     return ret;
 }
@@ -434,29 +400,45 @@ int st_table_get_value(st_table_t *table, st_str_t key, st_str_t *value) {
 }
 
 // lock table before use the function
-int st_table_iter_next_value(st_table_t *table, st_table_iter_t *iter, st_str_t *value) {
+int st_table_iter_init(st_table_t *table, st_table_iter_t *iter) {
 
     st_must(table != NULL, ST_ARG_INVALID);
     st_must(table->inited, ST_UNINITED);
     st_must(iter != NULL, ST_ARG_INVALID);
-    st_must(value != NULL, ST_ARG_INVALID);
 
-    st_rbtree_node_t *n = NULL;
-
-    if (*iter == NULL) {
-        n = st_rbtree_left_most(&table->elements);
+    st_rbtree_node_t *n = st_rbtree_left_most(&table->elements);
+    if (n == NULL) {
+        *iter = NULL;
     } else {
-        n = st_rbtree_get_next(&table->elements, &(*iter)->rbnode);
+        *iter = st_owner(n, st_table_element_t, rbnode);
     }
 
-    if (n == NULL) {
+    return ST_OK;
+}
+
+// lock table before use the function
+int st_table_iter_next(st_table_t *table, st_table_iter_t *iter, st_str_t *key,
+                       st_str_t *value) {
+
+    st_must(table != NULL, ST_ARG_INVALID);
+    st_must(table->inited, ST_UNINITED);
+    st_must(iter != NULL, ST_ARG_INVALID);
+    st_must(key != NULL, ST_ARG_INVALID);
+    st_must(value != NULL, ST_ARG_INVALID);
+
+    if (*iter == NULL) {
         return ST_NOT_FOUND;
     }
 
-    st_table_element_t *elem = st_owner(n, st_table_element_t, rbnode);
+    *key = (*iter)->key;
+    *value = (*iter)->value;
 
-    *value = elem->value;
-    *iter = elem;
+    st_rbtree_node_t *n = st_rbtree_get_next(&table->elements, &(*iter)->rbnode);
+    if (n == NULL) {
+        *iter = NULL;
+    } else {
+        *iter = st_owner(n, st_table_element_t, rbnode);
+    }
 
     return ST_OK;
 }

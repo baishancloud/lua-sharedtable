@@ -216,6 +216,42 @@ st_test(table, add_value) {
     free_table_pool(table_pool);
 }
 
+st_test(table, remove_all) {
+
+    st_table_t *t;
+    int value_buf[40] = {0};
+
+    st_table_pool_t *table_pool = alloc_table_pool();
+    int element_size = sizeof(st_table_element_t) + sizeof(int) + sizeof(value_buf);
+
+    st_table_new(table_pool, &t);
+
+    st_ut_eq(1, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
+    st_ut_eq(0, get_alloc_num_in_slab(table_pool, element_size), "");
+
+    for (int i = 0; i < 100; i++) {
+        st_str_t key = st_str_wrap(&i, sizeof(i));
+
+        value_buf[0] = i;
+        st_str_t value = st_str_wrap(value_buf, sizeof(value_buf));
+        st_ut_eq(ST_OK, st_table_add_key_value(t, key, value), "");
+
+        st_ut_eq(i + 1, get_alloc_num_in_slab(table_pool, element_size), "");
+        st_ut_eq(i + 1, t->element_cnt, "");
+    }
+
+    st_ut_eq(1, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
+    st_ut_eq(100, get_alloc_num_in_slab(table_pool, element_size), "");
+
+    st_ut_eq(ST_OK, st_table_remove_all(t), "");
+
+    st_ut_eq(1, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
+    st_ut_eq(0, get_alloc_num_in_slab(table_pool, element_size), "");
+
+    st_table_release(t);
+    free_table_pool(table_pool);
+}
+
 st_test(table, remove_value) {
 
     st_table_t *t;
@@ -285,20 +321,23 @@ st_test(table, iter_next_value) {
 
     st_ut_eq(ST_OK, st_robustlock_lock(&t->lock), "");
 
-    st_str_t v1, v2;
+    st_str_t k;
+    st_str_t v1;
+    st_str_t v2;
     st_table_iter_t iter;
-    st_table_init_iter(&iter);
+    st_table_iter_init(t, &iter);
 
     for (i = 0; i < 100; i++) {
-        st_ut_eq(ST_OK, st_table_iter_next_value(t, &iter, &v1), "");
+        st_ut_eq(ST_OK, st_table_iter_next(t, &iter, &k, &v1), "");
 
         st_str_t key = st_str_wrap(&i, sizeof(i));
         st_ut_eq(ST_OK, st_table_get_value(t, key, &v2), "");
 
+        st_ut_eq(0, st_str_cmp(&k, &key), "");
         st_ut_eq(0, st_str_cmp(&v1, &v2), "");
     }
 
-    st_ut_eq(ST_NOT_FOUND, st_table_iter_next_value(t, &iter, &v1), "");
+    st_ut_eq(ST_NOT_FOUND, st_table_iter_next(t, &iter, &k, &v1), "");
 
     st_robustlock_unlock_err_abort(&t->lock);
 
