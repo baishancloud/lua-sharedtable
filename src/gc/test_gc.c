@@ -125,7 +125,8 @@ static void clean_root_table(st_table_t *root) {
 
 static void add_tables_into_root(st_table_t *root, int num, int sub_num) {
 
-    st_table_t *t1, *t2;
+    st_table_t *t1;
+    st_table_t *t2;
     char key_buf[11] = {0};
 
     for (int i = 0; i < num; i++) {
@@ -190,7 +191,8 @@ st_test(table, push_to_mark_and_sweep_queue) {
 
 st_test(table, run_gc_in_initial) {
 
-    st_table_t *t, *root;
+    st_table_t *t;
+    st_table_t *root;
     st_table_pool_t *table_pool = alloc_table_pool();
     st_gc_t *gc = &table_pool->gc;
 
@@ -221,19 +223,47 @@ st_test(table, run_gc_in_initial) {
     free_table_pool(table_pool);
 }
 
-static int test_mark_reachable_table(st_str_t value, st_gc_t *gc) {
+static int test_mark_reachable_table(st_table_t *table, st_gc_t *gc) {
 
-    st_table_t *t = st_table_get_table_addr_from_value(value);
+    st_str_t key;
+    st_str_t value;
+    st_table_iter_t iter;
 
-    if (t->gc_head.mark != st_gc_status_reachable(gc)) {
-        return ST_STATE_INVALID;
+    int ret = st_robustlock_lock(&table->lock);
+    if (ret != ST_OK) {
+        return ret;
     }
 
-    if (t->element_cnt > 0) {
-        return st_table_foreach(t, (st_table_visit_f)test_mark_reachable_table, gc);
+    ret = st_table_iter_init(table, &iter);
+    if (ret != ST_OK) {
+        goto quit;
     }
 
-    return ST_OK;
+    while (1) {
+        ret = st_table_iter_next(table, &iter, &key, &value);
+        if (ret != ST_OK) {
+            if (ret == ST_NOT_FOUND) {
+                ret = ST_OK;
+            }
+            goto quit;
+        }
+
+        st_table_t *t = st_table_get_table_addr_from_value(value);
+
+        if (t->gc_head.mark != st_gc_status_reachable(gc)) {
+            ret = ST_STATE_INVALID;
+            goto quit;
+        }
+
+        ret = test_mark_reachable_table(t, gc);
+        if (ret != ST_OK) {
+            goto quit;
+        }
+    }
+
+quit:
+    st_robustlock_unlock_err_abort(&table->lock);
+    return ret;
 }
 
 st_test(table, run_gc_in_mark_reachable) {
@@ -252,7 +282,8 @@ st_test(table, run_gc_in_mark_reachable) {
 
     int i = 0;
     int use_usec;
-    int64_t start = 0, end = 0;
+    int64_t start = 0;
+    int64_t end = 0;
 
     gc->free_cnt_per_step = 0;
 
@@ -269,7 +300,7 @@ st_test(table, run_gc_in_mark_reachable) {
 
     st_ut_gt(i, 1, "");
 
-    st_ut_eq(ST_OK, st_table_foreach(root, (st_table_visit_f)test_mark_reachable_table, gc), "");
+    st_ut_eq(ST_OK, test_mark_reachable_table(root, gc), "");
 
     gc->free_cnt_per_step = 50;
     clean_root_table(root);
@@ -323,7 +354,8 @@ st_test(table, run_gc_in_mark_sweep) {
 
 st_test(table, run_gc_in_mark_prev_sweep) {
 
-    st_table_t *t, *root;
+    st_table_t *t;
+    st_table_t *root;
     st_table_pool_t *table_pool = alloc_table_pool();
     st_gc_t *gc = &table_pool->gc;
 
@@ -403,7 +435,8 @@ st_test(table, run_gc_in_mark_prev_sweep) {
 
 st_test(table, run_gc_in_free_garbage) {
 
-    st_table_t *t, *root;
+    st_table_t *t;
+    st_table_t *root;
     st_table_pool_t *table_pool = alloc_table_pool();
     st_gc_t *gc = &table_pool->gc;
 
@@ -448,7 +481,9 @@ st_test(table, run_gc_in_free_garbage) {
 st_test(table, run_gc_in_once) {
 
     int ret;
-    int64_t start = 0, end = 0, use_usec = 0;
+    int64_t start = 0;
+    int64_t end = 0;
+    int64_t use_usec = 0;
     st_table_t *t, *root;
     st_table_pool_t *table_pool = alloc_table_pool();
     st_gc_t *gc = &table_pool->gc;
@@ -487,7 +522,7 @@ st_test(table, run_gc_in_once) {
             st_ut_lt(use_usec, 1500, "");
             st_ut_gt(use_usec, 1, "");
 
-            st_ut_gt(gc->mark_cnt_per_step, 10, "");
+            st_ut_gt(gc->visit_cnt_per_step, 10, "");
             st_ut_gt(gc->free_cnt_per_step, 10, "");
         } while (gc->begin);
 
@@ -506,7 +541,7 @@ st_test(table, run_gc_in_once) {
             st_ut_lt(use_usec, 1500, "");
             st_ut_gt(use_usec, 1, "");
 
-            st_ut_gt(gc->mark_cnt_per_step, 10, "");
+            st_ut_gt(gc->visit_cnt_per_step, 10, "");
             st_ut_gt(gc->free_cnt_per_step, 10, "");
         } while (gc->begin);
 

@@ -63,7 +63,7 @@ struct st_gc_s {
     int begin;
 
     // in one gc step can mark table elements count.
-    int mark_cnt_per_step;
+    int visit_cnt_per_step;
 
     // in one gc step can free table elements count.
     int free_cnt_per_step;
@@ -93,7 +93,7 @@ static inline int st_gc_is_status_unknown(st_gc_t *gc, int64_t mark) {
 static inline void st_gc_head_init(st_gc_t *gc, st_gc_head_t *gc_head) {
     gc_head->mark_lnode = (st_list_t) {NULL, NULL};
     gc_head->sweep_lnode = (st_list_t) {NULL, NULL};
-    gc_head->mark = st_atomic_load(&gc->round);
+    gc_head->mark = st_gc_status_unknown(gc);
 }
 
 int st_gc_init(st_gc_t *gc);

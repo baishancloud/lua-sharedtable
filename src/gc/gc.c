@@ -19,38 +19,70 @@ static void st_gc_roots_to_mark_queue(st_gc_t *gc) {
     }
 }
 
-static int st_gc_table_to_mark_queue(st_str_t value, st_list_t *mark_queue) {
+static int st_gc_table_children_to_queue(st_gc_t *gc, st_table_t *table, st_list_t *queue,
+        int is_mark) {
 
-    if (!st_types_is_table(value.type)) {
-        return ST_OK;
+    st_str_t key;
+    st_str_t value;
+    st_table_iter_t iter;
+    st_list_t *lnode = NULL;
+
+    int ret = st_robustlock_lock(&table->lock);
+    if (ret != ST_OK) {
+        return ret;
     }
 
-    st_table_t *t = st_table_get_table_addr_from_value(value);
-
-    st_gc_t *gc = &t->pool->gc;
-    st_gc_head_t *gc_head = &t->gc_head;
-
-    if (gc_head->mark == st_gc_status_reachable(gc)) {
-        return ST_OK;
+    ret = st_table_iter_init(table, &iter);
+    if (ret != ST_OK) {
+        goto quit;
     }
 
-    if (st_list_is_inited(&gc_head->mark_lnode)) {
-        return ST_OK;
+    while (1) {
+        ret = st_table_iter_next(table, &iter, &key, &value);
+        if (ret != ST_OK) {
+            if (ret == ST_NOT_FOUND) {
+                ret = ST_OK;
+            }
+            goto quit;
+        }
+
+        if (!st_types_is_table(value.type)) {
+            continue;
+        }
+
+        st_table_t *t = st_table_get_table_addr_from_value(value);
+        st_gc_head_t *gc_head = &t->gc_head;
+
+        if (!st_gc_is_status_unknown(gc, gc_head->mark)) {
+            continue;
+        }
+
+        if (is_mark) {
+            lnode = &gc_head->mark_lnode;
+        } else {
+            lnode = &gc_head->sweep_lnode;
+        }
+
+        if (st_list_is_inited(lnode)) {
+            continue;
+        }
+
+        st_list_insert_last(queue, lnode);
     }
 
-    st_list_insert_last(mark_queue, &gc_head->mark_lnode);
-
-    return ST_OK;
+quit:
+    st_robustlock_unlock_err_abort(&table->lock);
+    return ret;
 }
 
-static int st_gc_mark_reachable_tables(st_gc_t *gc, int *marked_cnt) {
+static int st_gc_mark_reachable_tables(st_gc_t *gc, int *visited_cnt) {
 
     int ret;
     st_table_t *t = NULL;
     st_list_t *node = NULL;
     st_gc_head_t *gc_head = NULL;
 
-    while (*marked_cnt < gc->mark_cnt_per_step) {
+    while (*visited_cnt < gc->visit_cnt_per_step) {
 
         node = st_list_pop_first(&gc->mark_queue);
         if (node == NULL) {
@@ -62,48 +94,25 @@ static int st_gc_mark_reachable_tables(st_gc_t *gc, int *marked_cnt) {
 
         t = st_owner(gc_head, st_table_t, gc_head);
 
-        ret = st_table_foreach(t, (st_table_visit_f)st_gc_table_to_mark_queue, &gc->mark_queue);
+        ret = st_gc_table_children_to_queue(gc, t, &gc->mark_queue, 1);
         if (ret != ST_OK) {
             return ret;
         }
 
         // 1 is current table.
-        *marked_cnt = *marked_cnt + 1 + st_atomic_load(&t->element_cnt);
+        *visited_cnt = *visited_cnt + 1 + t->element_cnt;
     }
 
     return ST_OK;
 }
 
-static int st_gc_table_to_sweep_queue(st_str_t value, st_list_t *sweep_queue) {
-
-    if (!st_types_is_table(value.type)) {
-        return ST_OK;
-    }
-
-    st_table_t *t = st_table_get_table_addr_from_value(value);
-
-    st_gc_t *gc = &t->pool->gc;
-    st_gc_head_t *gc_head = &t->gc_head;
-
-    if (gc_head->mark == st_gc_status_reachable(gc) || gc_head->mark == st_gc_status_garbage(gc)) {
-        return ST_OK;
-    }
-
-    if (st_list_is_inited(&gc_head->sweep_lnode)) {
-        return ST_OK;
-    }
-
-    st_list_insert_last(sweep_queue, &gc_head->sweep_lnode);
-
-    return ST_OK;
-}
-
-static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev, int *marked_cnt) {
+static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev, int *visited_cnt) {
 
     int ret;
     st_gc_head_t *gc_head = NULL;
     st_table_t *t = NULL;
-    st_list_t *node = NULL, *sweep_queue = NULL;
+    st_list_t *node = NULL;
+    st_list_t *sweep_queue = NULL;
 
     if (is_prev) {
         sweep_queue = &gc->prev_sweep_queue;
@@ -111,7 +120,7 @@ static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev, int *marked_cnt) 
         sweep_queue = &gc->sweep_queue;
     }
 
-    while (*marked_cnt < gc->mark_cnt_per_step) {
+    while (*visited_cnt < gc->visit_cnt_per_step) {
 
         node = st_list_pop_first(sweep_queue);
         if (node == NULL) {
@@ -136,16 +145,16 @@ static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev, int *marked_cnt) 
             gc_head->mark = st_gc_status_garbage(gc);
             st_list_insert_last(&gc->garbage_queue, node);
 
-            ret = st_table_foreach(t, (st_table_visit_f)st_gc_table_to_sweep_queue, sweep_queue);
+            ret = st_gc_table_children_to_queue(gc, t, sweep_queue, 0);
             if (ret != ST_OK) {
                 return ret;
             }
 
-            *marked_cnt += st_atomic_load(&t->element_cnt);
+            *visited_cnt += t->element_cnt;
         }
 
         // add 1 is current table.
-        *marked_cnt += 1;
+        *visited_cnt += 1;
     }
 
     return ST_OK;
@@ -154,8 +163,9 @@ static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev, int *marked_cnt) 
 static int st_gc_mark_tables(st_gc_t *gc) {
 
     int err;
-    int marked_cnt = 0;
-    int64_t start_usec = 0, end_usec = 0;
+    int visited_cnt = 0;
+    int64_t start_usec = 0;
+    int64_t end_usec = 0;
 
     int ret = st_time_in_usec(&start_usec);
     if (ret != ST_OK) {
@@ -163,23 +173,23 @@ static int st_gc_mark_tables(st_gc_t *gc) {
     }
 
     // mark in mark_queue
-    ret = st_gc_mark_reachable_tables(gc, &marked_cnt);
+    ret = st_gc_mark_reachable_tables(gc, &visited_cnt);
     if (ret == ST_OK) {
         goto quit;
     } else if (ret != ST_EMPTY) {
         return ret;
     }
 
-    // mark in prev_sweep_queue
-    ret = st_gc_mark_garbage_tables(gc, 1, &marked_cnt);
+    // mark tables garbage in prev_sweep_queue
+    ret = st_gc_mark_garbage_tables(gc, 1, &visited_cnt);
     if (ret == ST_OK) {
         goto quit;
     } else if (ret != ST_EMPTY) {
         return ret;
     }
 
-    // mark in sweep_queue
-    ret = st_gc_mark_garbage_tables(gc, 0, &marked_cnt);
+    // mark tables garbage in sweep_queue
+    ret = st_gc_mark_garbage_tables(gc, 0, &visited_cnt);
     if (ret == ST_OK) {
         goto quit;
     } else if (ret != ST_EMPTY) {
@@ -192,13 +202,13 @@ quit:
         return err;
     }
 
-    if (marked_cnt > 0) {
-        float usec = st_max((float)(end_usec - start_usec) / marked_cnt, 0.01);
-        gc->mark_cnt_per_step = st_max(ST_GC_MAX_TIME_IN_USEC / usec, 1);
+    if (visited_cnt > 0) {
+        float usec = st_max((float)(end_usec - start_usec) / visited_cnt, 0.01);
+        gc->visit_cnt_per_step = st_max(ST_GC_MAX_TIME_IN_USEC / usec, 1);
     }
 
-    dd("mark use usec: %d, marked_cnt: %d, next mark_cnt_per_step: %d",
-       (int)(end_usec - start_usec), marked_cnt, gc->mark_cnt_per_step);
+    dd("visit use usec: %d, visited_cnt: %d, next visit_cnt_per_step: %d",
+       (int)(end_usec - start_usec), visited_cnt, gc->visit_cnt_per_step);
 
     return ret;
 }
@@ -206,7 +216,8 @@ quit:
 static int st_gc_free_tables(st_gc_t *gc) {
 
     int freed_cnt = 0;
-    int64_t start_usec = 0, end_usec = 0;
+    int64_t start_usec = 0;
+    int64_t end_usec = 0;
     st_list_t *node = NULL;
     st_gc_head_t *gc_head = NULL;
     st_table_t *t = NULL;
@@ -236,7 +247,7 @@ static int st_gc_free_tables(st_gc_t *gc) {
             return ret;
         }
 
-        freed_cnt = freed_cnt + 1 + st_atomic_load(&t->element_cnt);
+        freed_cnt = freed_cnt + 1 + t->element_cnt;
     }
 
     ret = st_time_in_usec(&end_usec);
@@ -293,13 +304,13 @@ int st_gc_run(st_gc_t *gc) {
 
     st_list_join(&gc->prev_sweep_queue, &gc->remained_queue);
 
+    gc->round += 4;
+    gc->begin = 0;
+
     ret = st_time_in_usec(&gc->end_usec);
     if (ret != ST_OK) {
         goto quit;
     }
-
-    st_atomic_incr(&gc->round, 4);
-    gc->begin = 0;
 
 quit:
     st_robustlock_unlock_err_abort(&gc->lock);
@@ -397,7 +408,7 @@ int st_gc_init(st_gc_t *gc) {
 
     gc->round = 0;
     gc->begin = 0;
-    gc->mark_cnt_per_step = 100;
+    gc->visit_cnt_per_step = 100;
     gc->free_cnt_per_step = 50;
 
     st_list_init(&gc->mark_queue);
@@ -425,7 +436,6 @@ int st_gc_init(st_gc_t *gc) {
     ret = st_robustlock_init(&gc->lock);
     if (ret != ST_OK) {
         st_array_destroy(&gc->roots);
-        return ret;
     }
 
     return ret;
@@ -433,7 +443,7 @@ int st_gc_init(st_gc_t *gc) {
 
 int st_gc_destroy(st_gc_t *gc) {
 
-    int ret, err = ST_OK;
+    int ret;
     st_must(gc != NULL, ST_ARG_INVALID);
 
     while (1) {
@@ -451,20 +461,20 @@ int st_gc_destroy(st_gc_t *gc) {
             !st_list_empty(&gc->garbage_queue) ||
             !st_list_empty(&gc->remained_queue)) {
 
+        derr("gc queue is empty? mark: %d, prev_sweep: %d, sweep: %d, garbage: %d, remained: %d",
+             st_list_empty(&gc->mark_queue),
+             st_list_empty(&gc->prev_sweep_queue),
+             st_list_empty(&gc->sweep_queue),
+             st_list_empty(&gc->garbage_queue),
+             st_list_empty(&gc->remained_queue));
+
         return ST_STATE_INVALID;
     }
 
     ret = st_array_destroy(&gc->roots);
     if (ret != ST_OK) {
-        derr("st_array_destroy error %d\n", ret);
-        err = ret;
+        return ret;
     }
 
-    ret = st_robustlock_destroy(&gc->lock);
-    if (ret != ST_OK) {
-        derr("st_robustlock_destroy gc lock error %d\n", ret);
-        err = err == ST_OK ? ret : err;
-    }
-
-    return err;
+    return st_robustlock_destroy(&gc->lock);
 }
