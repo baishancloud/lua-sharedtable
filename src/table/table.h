@@ -16,10 +16,15 @@
 #include "gc/gc.h"
 
 typedef struct st_table_element_s st_table_element_t;
-typedef st_table_element_t *st_table_iter_t;
+typedef struct st_table_iter_s st_table_iter_t;
 
 typedef struct st_table_s st_table_t;
 typedef struct st_table_pool_s st_table_pool_t;
+
+struct st_table_iter_s {
+    st_table_element_t *element;
+    int64_t table_version;
+};
 
 struct st_table_element_s {
     // used for table rbtree
@@ -42,6 +47,7 @@ struct st_table_s {
     st_rbtree_t elements;
 
     int64_t element_cnt;
+    int64_t version;
 
     // the lock protect elements rbtree
     pthread_mutex_t lock;
@@ -66,7 +72,7 @@ static inline st_table_t *st_table_get_table_addr_from_value(st_str_t value) {
 
 int st_table_new(st_table_pool_t *pool, st_table_t **table);
 
-int st_table_release(st_table_t *table);
+int st_table_free(st_table_t *table);
 
 // this function is only used for gc, other one please use st_table_clear.
 int st_table_remove_all_for_gc(st_table_t *table);
@@ -86,6 +92,9 @@ int st_table_get_value(st_table_t *table, st_str_t key, st_str_t *value);
 // the function is no locked, because user will copy or do other thing in his code
 // so lock the table first.
 int st_table_iter_init(st_table_t *table, st_table_iter_t *iter);
+
+// you can lock whole iterate, to avoid table change in iterate runtime.
+// or you must lock st_table_iter_next, that not guarantee iterate table correctness.
 int st_table_iter_next(st_table_t *table, st_table_iter_t *iter, st_str_t *key,
                        st_str_t *value);
 

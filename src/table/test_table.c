@@ -122,7 +122,7 @@ int wait_children(int *pids, int pid_cnt) {
     return err;
 }
 
-st_test(table, new_release) {
+st_test(table, new_free) {
 
     st_table_t *t;
     st_table_pool_t *pool = alloc_table_pool();
@@ -154,7 +154,7 @@ st_test(table, new_release) {
     st_ut_eq(100, get_alloc_num_in_slab(pool, element_size), "");
 
     st_ut_eq(ST_OK, st_table_remove_all(t), "");
-    st_ut_eq(ST_OK, st_table_release(t), "");
+    st_ut_eq(ST_OK, st_table_free(t), "");
 
     st_ut_eq(0, get_alloc_num_in_slab(pool, sizeof(st_table_t)), "");
     st_ut_eq(0, get_alloc_num_in_slab(pool, element_size), "");
@@ -162,7 +162,7 @@ st_test(table, new_release) {
     st_ut_eq(ST_ARG_INVALID, st_table_new(NULL, &t), "");
     st_ut_eq(ST_ARG_INVALID, st_table_new(pool, NULL), "");
 
-    st_ut_eq(ST_ARG_INVALID, st_table_release(NULL), "");
+    st_ut_eq(ST_ARG_INVALID, st_table_free(NULL), "");
 
     free_table_pool(pool);
 }
@@ -212,7 +212,7 @@ st_test(table, add_value) {
     st_ut_eq(ST_ARG_INVALID, st_table_add_key_value(t, key, (st_str_t)st_str_null), "");
 
     st_table_remove_all(t);
-    st_table_release(t);
+    st_table_free(t);
     free_table_pool(table_pool);
 }
 
@@ -248,7 +248,7 @@ st_test(table, remove_all) {
     st_ut_eq(1, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
     st_ut_eq(0, get_alloc_num_in_slab(table_pool, element_size), "");
 
-    st_table_release(t);
+    st_table_free(t);
     free_table_pool(table_pool);
 }
 
@@ -295,7 +295,7 @@ st_test(table, remove_value) {
     st_ut_eq(ST_ARG_INVALID, st_table_remove_key(t, (st_str_t)st_str_null), "");
 
     st_table_remove_all(t);
-    st_table_release(t);
+    st_table_free(t);
     free_table_pool(table_pool);
 }
 
@@ -319,8 +319,6 @@ st_test(table, iter_next_value) {
         st_table_add_key_value(t, key, value);
     }
 
-    st_ut_eq(ST_OK, st_robustlock_lock(&t->lock), "");
-
     st_str_t k;
     st_str_t v1;
     st_str_t v2;
@@ -339,10 +337,15 @@ st_test(table, iter_next_value) {
 
     st_ut_eq(ST_NOT_FOUND, st_table_iter_next(t, &iter, &k, &v1), "");
 
-    st_robustlock_unlock_err_abort(&t->lock);
+    st_str_t key = st_str_wrap(&i, sizeof(i));
+    value_buf[0] = 100;
+    st_str_t value = st_str_wrap(value_buf, sizeof(value_buf));
+    st_ut_eq(0, st_table_add_key_value(t, key, value), "");
+
+    st_ut_eq(ST_TABLE_MODIFIED, st_table_iter_next(t, &iter, &k, &v1), "");
 
     st_table_remove_all(t);
-    st_table_release(t);
+    st_table_free(t);
     free_table_pool(table_pool);
 }
 
@@ -403,7 +406,7 @@ st_test(table, add_remove_table) {
     run_gc_one_round(&table_pool->gc);
 
     st_ut_eq(ST_OK, st_gc_remove_root(&table_pool->gc, &root->gc_head), "");
-    st_ut_eq(ST_OK, st_table_release(root), "");
+    st_ut_eq(ST_OK, st_table_free(root), "");
 
     st_ut_eq(0, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
     st_ut_eq(0, get_alloc_num_in_slab(table_pool, element_size), "");
@@ -594,7 +597,7 @@ st_test(table, handle_table_in_processes) {
     run_gc_one_round(&table_pool->gc);
 
     st_ut_eq(st_gc_remove_root(&table_pool->gc, &root->gc_head), ST_OK, "");
-    st_ut_eq(ST_OK, st_table_release(root), "");
+    st_ut_eq(ST_OK, st_table_free(root), "");
 
     st_ut_eq(0, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
     st_ut_eq(0, get_alloc_num_in_slab(table_pool, element_size), "");
@@ -641,7 +644,7 @@ st_test(table, clear_circular_ref_in_same_table) {
     st_ut_eq(0, get_alloc_num_in_slab(table_pool, element_size), "");
 
     st_ut_eq(st_gc_remove_root(&table_pool->gc, &root->gc_head), ST_OK, "");
-    st_ut_eq(ST_OK, st_table_release(root), "");
+    st_ut_eq(ST_OK, st_table_free(root), "");
 
     st_ut_eq(0, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
 
@@ -712,7 +715,7 @@ static int test_circular_ref(int process_id, st_table_pool_t *table_pool) {
         return ret;
     }
 
-    return st_table_release(root);
+    return st_table_free(root);
 }
 
 st_test(table, test_circular_ref) {

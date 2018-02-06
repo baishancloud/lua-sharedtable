@@ -20,6 +20,7 @@
   (ST_INITTWICE),             \
   (ST_ARG_INVALID),           \
   (ST_STATE_INVALID),         \
+  (ST_TABLE_MODIFIED),        \
   (ST_IO),                    \
   (ST_NOT_FOUND),             \
   (ST_NOT_READY),             \

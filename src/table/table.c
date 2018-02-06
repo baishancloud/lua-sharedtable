@@ -34,7 +34,7 @@ static int st_table_new_element(st_table_t *table, st_str_t key,
     return ret;
 }
 
-static int st_table_release_element(st_table_t *table, st_table_element_t *elem) {
+static int st_table_free_element(st_table_t *table, st_table_element_t *elem) {
 
     st_table_pool_t *pool = table->pool;
 
@@ -53,6 +53,7 @@ static int st_table_add_element(st_table_t *table, st_table_element_t *elem) {
         goto quit;
     }
 
+    table->version++;
     table->element_cnt++;
 
 quit:
@@ -87,6 +88,7 @@ static int st_table_remove_element(st_table_t *table, st_str_t key, st_table_ele
     }
 
     st_rbtree_delete(&table->elements, &(*removed)->rbnode);
+    table->version++;
     table->element_cnt--;
 
 quit:
@@ -109,6 +111,7 @@ static int st_table_init(st_table_t *table, st_table_pool_t *pool) {
     st_gc_head_init(&pool->gc, &table->gc_head);
 
     table->pool = pool;
+    table->version = 0;
     table->element_cnt = 0;
     table->inited = 1;
 
@@ -127,6 +130,7 @@ static int st_table_destroy(st_table_t *table) {
     }
 
     table->pool = NULL;
+    table->version = 0;
     table->element_cnt = 0;
     table->inited = 0;
 
@@ -141,8 +145,8 @@ static int st_table_run_gc_if_needed(st_table_t *table) {
         return ST_OK;
     }
 
-    // 9223372036854775808U is half of 2^64.
-    if ((uintptr_t)table * 11400714819323198485U > 9223372036854775808U) {
+    // 0x9e3779b97f4a7c15 is bonacci hashing value, 0x8000000000000000 is half of 2^64.
+    if ((uintptr_t)table * 0x9e3779b97f4a7c15 > 0x8000000000000000) {
         return ST_OK;
     }
 
@@ -180,7 +184,7 @@ int st_table_new(st_table_pool_t *pool, st_table_t **table) {
     return ret;
 }
 
-int st_table_release(st_table_t *table) {
+int st_table_free(st_table_t *table) {
 
     st_must(table != NULL, ST_ARG_INVALID);
     st_must(table->inited, ST_UNINITED);
@@ -229,7 +233,9 @@ static int st_table_remove_all_elements(st_table_t *table, st_rbtree_node_t *nod
         }
     }
 
-    return st_table_release_element(table, e);
+    table->version++;
+
+    return st_table_free_element(table, e);
 }
 
 // this function is only used for gc, other one please use st_table_remove_all.
@@ -335,7 +341,7 @@ quit:
         return st_table_run_gc_if_needed(table);
     }
 
-    st_table_release_element(table, elem);
+    st_table_free_element(table, elem);
     return ret;
 }
 
@@ -371,7 +377,7 @@ int st_table_remove_key(st_table_t *table, st_str_t key) {
         return ret;
     }
 
-    ret = st_table_release_element(table, removed);
+    ret = st_table_free_element(table, removed);
     if (ret != ST_OK) {
         return ret;
     }
@@ -406,17 +412,20 @@ int st_table_iter_init(st_table_t *table, st_table_iter_t *iter) {
     st_must(table->inited, ST_UNINITED);
     st_must(iter != NULL, ST_ARG_INVALID);
 
+    iter->table_version = table->version;
+
     st_rbtree_node_t *n = st_rbtree_left_most(&table->elements);
     if (n == NULL) {
-        *iter = NULL;
+        iter->element = NULL;
     } else {
-        *iter = st_owner(n, st_table_element_t, rbnode);
+        iter->element = st_owner(n, st_table_element_t, rbnode);
     }
 
     return ST_OK;
 }
 
-// lock table before use the function
+// you can lock whole iterate, to avoid table change in iterate runtime.
+// or you must lock st_table_iter_next, that not guarantee iterate table correctness.
 int st_table_iter_next(st_table_t *table, st_table_iter_t *iter, st_str_t *key,
                        st_str_t *value) {
 
@@ -426,18 +435,24 @@ int st_table_iter_next(st_table_t *table, st_table_iter_t *iter, st_str_t *key,
     st_must(key != NULL, ST_ARG_INVALID);
     st_must(value != NULL, ST_ARG_INVALID);
 
-    if (*iter == NULL) {
+    st_table_element_t *elem = iter->element;
+
+    if (iter->table_version != table->version) {
+        return ST_TABLE_MODIFIED;
+    }
+
+    if (elem == NULL) {
         return ST_NOT_FOUND;
     }
 
-    *key = (*iter)->key;
-    *value = (*iter)->value;
+    *key = elem->key;
+    *value = elem->value;
 
-    st_rbtree_node_t *n = st_rbtree_get_next(&table->elements, &(*iter)->rbnode);
+    st_rbtree_node_t *n = st_rbtree_get_next(&table->elements, &elem->rbnode);
     if (n == NULL) {
-        *iter = NULL;
+        iter->element = NULL;
     } else {
-        *iter = st_owner(n, st_table_element_t, rbnode);
+        iter->element = st_owner(n, st_table_element_t, rbnode);
     }
 
     return ST_OK;
