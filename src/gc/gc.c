@@ -19,8 +19,7 @@ static void st_gc_roots_to_mark_queue(st_gc_t *gc) {
     }
 }
 
-static int st_gc_table_children_to_queue(st_gc_t *gc, st_table_t *table, st_list_t *queue,
-        int is_mark) {
+static int st_gc_table_unknown_children_to_queue(st_gc_t *gc, st_table_t *table, st_list_t *queue) {
 
     st_str_t key;
     st_str_t value;
@@ -39,10 +38,10 @@ static int st_gc_table_children_to_queue(st_gc_t *gc, st_table_t *table, st_list
 
     while (1) {
         ret = st_table_iter_next(table, &iter, &key, &value);
-        if (ret != ST_OK) {
-            if (ret == ST_NOT_FOUND) {
-                ret = ST_OK;
-            }
+        if (ret == ST_NOT_FOUND) {
+            ret = ST_OK;
+            goto quit;
+        } else if (ret != ST_OK) {
             goto quit;
         }
 
@@ -57,7 +56,7 @@ static int st_gc_table_children_to_queue(st_gc_t *gc, st_table_t *table, st_list
             continue;
         }
 
-        if (is_mark) {
+        if (queue == &gc->mark_queue) {
             lnode = &gc_head->mark_lnode;
         } else {
             lnode = &gc_head->sweep_lnode;
@@ -75,14 +74,14 @@ quit:
     return ret;
 }
 
-static int st_gc_mark_reachable_tables(st_gc_t *gc, int *visited_cnt) {
+static int st_gc_mark_reachable_tables(st_gc_t *gc) {
 
     int ret;
     st_table_t *t = NULL;
     st_list_t *node = NULL;
     st_gc_head_t *gc_head = NULL;
 
-    while (*visited_cnt < gc->visit_cnt_per_step) {
+    while (gc->curr_visit_cnt < gc->max_visit_cnt) {
 
         node = st_list_pop_first(&gc->mark_queue);
         if (node == NULL) {
@@ -94,19 +93,17 @@ static int st_gc_mark_reachable_tables(st_gc_t *gc, int *visited_cnt) {
 
         t = st_owner(gc_head, st_table_t, gc_head);
 
-        ret = st_gc_table_children_to_queue(gc, t, &gc->mark_queue, 1);
-        if (ret != ST_OK) {
-            return ret;
-        }
+        ret = st_gc_table_unknown_children_to_queue(gc, t, &gc->mark_queue);
+        st_assert(ret == ST_OK);
 
         // 1 is current table.
-        *visited_cnt = *visited_cnt + 1 + t->element_cnt;
+        gc->curr_visit_cnt = gc->curr_visit_cnt + 1 + t->element_cnt;
     }
 
     return ST_OK;
 }
 
-static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev, int *visited_cnt) {
+static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev) {
 
     int ret;
     st_gc_head_t *gc_head = NULL;
@@ -120,7 +117,7 @@ static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev, int *visited_cnt)
         sweep_queue = &gc->sweep_queue;
     }
 
-    while (*visited_cnt < gc->visit_cnt_per_step) {
+    while (gc->curr_visit_cnt < gc->max_visit_cnt) {
 
         node = st_list_pop_first(sweep_queue);
         if (node == NULL) {
@@ -145,16 +142,14 @@ static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev, int *visited_cnt)
             gc_head->mark = st_gc_status_garbage(gc);
             st_list_insert_last(&gc->garbage_queue, node);
 
-            ret = st_gc_table_children_to_queue(gc, t, sweep_queue, 0);
-            if (ret != ST_OK) {
-                return ret;
-            }
+            ret = st_gc_table_unknown_children_to_queue(gc, t, sweep_queue);
+            st_assert(ret == ST_OK);
 
-            *visited_cnt += t->element_cnt;
+            gc->curr_visit_cnt += t->element_cnt;
         }
 
         // add 1 is current table.
-        *visited_cnt += 1;
+        gc->curr_visit_cnt += 1;
     }
 
     return ST_OK;
@@ -163,9 +158,10 @@ static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev, int *visited_cnt)
 static int st_gc_mark_tables(st_gc_t *gc) {
 
     int err;
-    int visited_cnt = 0;
     int64_t start_usec = 0;
     int64_t end_usec = 0;
+
+    gc->curr_visit_cnt = 0;
 
     int ret = st_time_in_usec(&start_usec);
     if (ret != ST_OK) {
@@ -173,7 +169,7 @@ static int st_gc_mark_tables(st_gc_t *gc) {
     }
 
     // mark in mark_queue
-    ret = st_gc_mark_reachable_tables(gc, &visited_cnt);
+    ret = st_gc_mark_reachable_tables(gc);
     if (ret == ST_OK) {
         goto quit;
     } else if (ret != ST_EMPTY) {
@@ -181,7 +177,7 @@ static int st_gc_mark_tables(st_gc_t *gc) {
     }
 
     // mark tables garbage in prev_sweep_queue
-    ret = st_gc_mark_garbage_tables(gc, 1, &visited_cnt);
+    ret = st_gc_mark_garbage_tables(gc, 1);
     if (ret == ST_OK) {
         goto quit;
     } else if (ret != ST_EMPTY) {
@@ -189,7 +185,7 @@ static int st_gc_mark_tables(st_gc_t *gc) {
     }
 
     // mark tables garbage in sweep_queue
-    ret = st_gc_mark_garbage_tables(gc, 0, &visited_cnt);
+    ret = st_gc_mark_garbage_tables(gc, 0);
     if (ret == ST_OK) {
         goto quit;
     } else if (ret != ST_EMPTY) {
@@ -202,32 +198,33 @@ quit:
         return err;
     }
 
-    if (visited_cnt > 0) {
-        float usec = st_max((float)(end_usec - start_usec) / visited_cnt, 0.01);
-        gc->visit_cnt_per_step = st_max(ST_GC_MAX_TIME_IN_USEC / usec, 1);
+    if (gc->curr_visit_cnt > 0) {
+        float usec = st_max((float)(end_usec - start_usec) / gc->curr_visit_cnt, 0.01);
+        gc->max_visit_cnt = st_max(ST_GC_MAX_TIME_IN_USEC / usec, 1);
     }
 
-    dd("visit use usec: %d, visited_cnt: %d, next visit_cnt_per_step: %d",
-       (int)(end_usec - start_usec), visited_cnt, gc->visit_cnt_per_step);
+    dd("visit use usec: %d, gc->curr_visit_cnt: %d, next max_visit_cnt: %d",
+       (int)(end_usec - start_usec), gc->curr_visit_cnt, gc->max_visit_cnt);
 
     return ret;
 }
 
 static int st_gc_free_tables(st_gc_t *gc) {
 
-    int freed_cnt = 0;
     int64_t start_usec = 0;
     int64_t end_usec = 0;
     st_list_t *node = NULL;
     st_gc_head_t *gc_head = NULL;
     st_table_t *t = NULL;
 
+    gc->curr_free_cnt = 0;
+
     int ret = st_time_in_usec(&start_usec);
     if (ret != ST_OK) {
         return ret;
     }
 
-    while (freed_cnt < gc->free_cnt_per_step) {
+    while (gc->curr_free_cnt < gc->max_free_cnt) {
 
         node = st_list_pop_first(&gc->garbage_queue);
         if (node == NULL) {
@@ -242,12 +239,12 @@ static int st_gc_free_tables(st_gc_t *gc) {
             return ret;
         }
 
-        ret = st_table_release(t);
+        ret = st_table_free(t);
         if (ret != ST_OK) {
             return ret;
         }
 
-        freed_cnt = freed_cnt + 1 + t->element_cnt;
+        gc->curr_free_cnt = gc->curr_free_cnt + 1 + t->element_cnt;
     }
 
     ret = st_time_in_usec(&end_usec);
@@ -255,13 +252,13 @@ static int st_gc_free_tables(st_gc_t *gc) {
         return ret;
     }
 
-    if (freed_cnt > 0) {
-        float usec = st_max((float)(end_usec - start_usec) / freed_cnt, 0.1);
-        gc->free_cnt_per_step = st_max(ST_GC_MAX_TIME_IN_USEC / usec, 1);
+    if (gc->curr_free_cnt > 0) {
+        float usec = st_max((float)(end_usec - start_usec) / gc->curr_free_cnt, 0.1);
+        gc->max_free_cnt = st_max(ST_GC_MAX_TIME_IN_USEC / usec, 1);
     }
 
-    dd("free use usec: %d, freed_cnt: %d, next free_cnt_per_step: %d",
-       (int)(end_usec - start_usec), freed_cnt, gc->free_cnt_per_step);
+    dd("free use usec: %d, curr_free_cnt: %d, next max_free_cnt: %d",
+       (int)(end_usec - start_usec), gc->curr_free_cnt, gc->max_free_cnt);
 
     return ST_OK;
 }
@@ -408,8 +405,8 @@ int st_gc_init(st_gc_t *gc) {
 
     gc->round = 0;
     gc->begin = 0;
-    gc->visit_cnt_per_step = 100;
-    gc->free_cnt_per_step = 50;
+    gc->max_visit_cnt = 100;
+    gc->max_free_cnt = 50;
 
     st_list_init(&gc->mark_queue);
     st_list_init(&gc->prev_sweep_queue);

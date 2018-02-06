@@ -62,11 +62,13 @@ struct st_gc_s {
     // gc has began running
     int begin;
 
-    // in one gc step can mark table elements count.
-    int visit_cnt_per_step;
+    // in one gc step can visit table elements count.
+    int max_visit_cnt;
+    int curr_visit_cnt;
 
     // in one gc step can free table elements count.
-    int free_cnt_per_step;
+    int max_free_cnt;
+    int curr_free_cnt;
 
     pthread_mutex_t lock;
 };
