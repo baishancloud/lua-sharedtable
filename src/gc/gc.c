@@ -161,8 +161,6 @@ static int st_gc_mark_tables(st_gc_t *gc) {
     int64_t start_usec = 0;
     int64_t end_usec = 0;
 
-    gc->curr_visit_cnt = 0;
-
     int ret = st_time_in_usec(&start_usec);
     if (ret != ST_OK) {
         return ret;
@@ -217,8 +215,6 @@ static int st_gc_free_tables(st_gc_t *gc) {
     st_gc_head_t *gc_head = NULL;
     st_table_t *t = NULL;
 
-    gc->curr_free_cnt = 0;
-
     int ret = st_time_in_usec(&start_usec);
     if (ret != ST_OK) {
         return ret;
@@ -266,6 +262,9 @@ static int st_gc_free_tables(st_gc_t *gc) {
 int st_gc_run(st_gc_t *gc) {
 
     st_must(gc != NULL, ST_ARG_INVALID);
+
+    gc->curr_visit_cnt = 0;
+    gc->curr_free_cnt = 0;
 
     int ret = st_robustlock_lock(&gc->lock);
     if (ret != ST_OK) {

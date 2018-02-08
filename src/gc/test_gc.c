@@ -29,11 +29,15 @@ static int _slab_size_to_index(uint64_t size) {
     return st_bit_msb(size) + 1;
 }
 
-static ssize_t get_alloc_num_in_slab(st_table_pool_t *pool, uint64_t size) {
+static ssize_t get_alloc_cnt_in_slab(st_table_pool_t *pool, uint64_t size) {
 
     int idx = _slab_size_to_index(size);
 
     return pool->slab_pool.groups[idx].stat.current.alloc.cnt;
+}
+
+static ssize_t remain_table_cnt(st_table_pool_t *pool) {
+    return get_alloc_cnt_in_slab(pool, sizeof(st_table_t));
 }
 
 static st_table_pool_t *alloc_table_pool() {
@@ -79,7 +83,7 @@ static void free_table_pool(st_table_pool_t *pool) {
     munmap(pool, TEST_POOL_SIZE);
 }
 
-void add_sub_table(st_table_t *table, char *name, st_table_t *sub) {
+static void add_sub_table(st_table_t *table, char *name, st_table_t *sub) {
 
     char key_buf[11] = {0};
     int value_buf[40] = {0};
@@ -119,27 +123,51 @@ static void clean_root_table(st_table_t *root) {
     st_assert(st_gc_remove_root(&table_pool->gc, &root->gc_head) == ST_OK);
     st_assert(st_table_free(root) == ST_OK);
 
-    st_assert(get_alloc_num_in_slab(table_pool, sizeof(st_table_t)) == 0);
-    st_assert(get_alloc_num_in_slab(table_pool, element_size) == 0);
+    st_assert(remain_table_cnt(table_pool) == 0);
+    st_assert(get_alloc_cnt_in_slab(table_pool, element_size) == 0);
 }
 
-static void add_tables_into_root(st_table_t *root, int num, int sub_num) {
+static void add_tables_into_root(st_table_t *root, int cnt, int sub_cnt) {
 
     st_table_t *t1;
     st_table_t *t2;
     char key_buf[11] = {0};
 
-    for (int i = 0; i < num; i++) {
+    for (int i = 0; i < cnt; i++) {
         sprintf(key_buf, "%010d", i);
         st_assert(st_table_new(root->pool, &t1) == ST_OK);
         add_sub_table(root, key_buf, t1);
 
-        for (int j = 0; j < sub_num; j++) {
+        for (int j = 0; j < sub_cnt; j++) {
             sprintf(key_buf, "%010d", j);
             st_assert(st_table_new(root->pool, &t2) == ST_OK);
             add_sub_table(t1, key_buf, t2);
         }
     }
+}
+
+static void run_gc_round(st_gc_t *gc) {
+
+    int usec;
+    int ret;
+    int64_t start = 0;
+    int64_t end = 0;
+
+    do {
+        st_time_in_usec(&start);
+        ret = st_gc_run(gc);
+        st_time_in_usec(&end);
+
+        st_assert(ret == ST_OK || ret == ST_NO_GC_DATA);
+
+        usec = end - start;
+
+        st_assert(0 < usec && usec < 5000);
+
+        st_assert(gc->max_visit_cnt > 10);
+        st_assert(gc->max_free_cnt > 10);
+
+    } while (gc->begin);
 }
 
 st_test(table, push_to_mark_and_sweep_queue) {
@@ -150,15 +178,14 @@ st_test(table, push_to_mark_and_sweep_queue) {
 
     for (int i = 0; i < 100; i++) {
         st_ut_eq(ST_OK, st_table_new(table_pool, &t), "");
-
         st_ut_eq(ST_OK, st_gc_push_to_mark(gc, &t->gc_head), "");
 
+        //test if table already marked, return state.
         t->gc_head.mark = st_gc_status_reachable(gc);
-
         st_ut_eq(ST_OK, st_gc_push_to_mark(gc, &t->gc_head), "");
 
+        //test if table already in mark_queu, return state.
         t->gc_head.mark = st_gc_status_unknown(gc);
-
         st_ut_eq(ST_OK, st_gc_push_to_mark(gc, &t->gc_head), "");
 
         st_ut_eq(ST_OK, st_gc_push_to_sweep(gc, &t->gc_head), "");
@@ -184,12 +211,12 @@ st_test(table, push_to_mark_and_sweep_queue) {
     st_ut_eq(0, st_list_empty(&gc->sweep_queue), "");
     st_ut_eq(1, st_list_empty(&gc->garbage_queue), "");
 
-    st_ut_eq(100, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
+    st_ut_eq(100, remain_table_cnt(table_pool), "");
 
     free_table_pool(table_pool);
 }
 
-st_test(table, run_gc_in_initial) {
+st_test(table, run_gc_from_begin) {
 
     st_table_t *t;
     st_table_t *root;
@@ -199,6 +226,7 @@ st_test(table, run_gc_in_initial) {
     st_table_new(table_pool, &root);
     st_ut_eq(ST_OK, st_gc_add_root(gc, &root->gc_head), "");
 
+    // if no table to sweep, no need to run gc.
     st_ut_eq(ST_NO_GC_DATA, st_gc_run(gc), "");
 
     st_table_new(table_pool, &t);
@@ -210,7 +238,9 @@ st_test(table, run_gc_in_initial) {
 
     add_tables_into_root(root, 100, 10);
 
+    // let gc stop before free table in garbage_queue phase.
     gc->max_free_cnt = 0;
+
     st_ut_eq(ST_OK, st_gc_run(gc), "");
 
     st_ut_eq(1, gc->begin, "");
@@ -223,7 +253,7 @@ st_test(table, run_gc_in_initial) {
     free_table_pool(table_pool);
 }
 
-static int test_mark_reachable_table(st_table_t *table, st_gc_t *gc) {
+static int check_table_children_reachable(st_table_t *table, st_gc_t *gc) {
 
     st_str_t key;
     st_str_t value;
@@ -255,7 +285,7 @@ static int test_mark_reachable_table(st_table_t *table, st_gc_t *gc) {
             goto quit;
         }
 
-        ret = test_mark_reachable_table(t, gc);
+        ret = check_table_children_reachable(t, gc);
         if (ret != ST_OK) {
             goto quit;
         }
@@ -266,7 +296,7 @@ quit:
     return ret;
 }
 
-st_test(table, run_gc_in_mark_reachable) {
+st_test(table, mark_reachable_table) {
 
     st_table_t *t, *root;
     st_table_pool_t *table_pool = alloc_table_pool();
@@ -281,10 +311,10 @@ st_test(table, run_gc_in_mark_reachable) {
     st_ut_eq(ST_OK, st_gc_push_to_sweep(gc, &t->gc_head), "");
 
     int i = 0;
-    int use_usec;
     int64_t start = 0;
     int64_t end = 0;
 
+    // let gc stop before free table in garbage_queue phase.
     gc->max_free_cnt = 0;
 
     do {
@@ -292,15 +322,14 @@ st_test(table, run_gc_in_mark_reachable) {
         st_ut_eq(ST_OK, st_gc_run(gc), "");
         st_time_in_usec(&end);
 
-        use_usec = end - start;
-        st_ut_lt(use_usec, 1500, "");
-        st_ut_gt(use_usec, 1, "");
+        st_ut_lt(end - start, 5000, "");
+        st_ut_gt(end - start, 1, "");
         i++;
     } while (!st_list_empty(&gc->mark_queue));
 
     st_ut_gt(i, 1, "");
 
-    st_ut_eq(ST_OK, test_mark_reachable_table(root, gc), "");
+    st_ut_eq(ST_OK, check_table_children_reachable(root, gc), "");
 
     gc->max_free_cnt = 50;
     clean_root_table(root);
@@ -308,7 +337,7 @@ st_test(table, run_gc_in_mark_reachable) {
     free_table_pool(table_pool);
 }
 
-st_test(table, run_gc_in_mark_sweep) {
+st_test(table, mark_in_sweep_queue) {
 
     st_table_t *t, *root;
     st_table_pool_t *table_pool = alloc_table_pool();
@@ -319,13 +348,16 @@ st_test(table, run_gc_in_mark_sweep) {
 
     add_tables_into_root(root, 100, 100);
 
+    // push tables to sweep queue
     for (int i = 0; i < 50; i++) {
         st_ut_eq(ST_OK, st_table_new(table_pool, &t), "");
         st_ut_eq(ST_OK, st_gc_push_to_sweep(gc, &t->gc_head), "");
     }
 
+    // let gc stop before free table in garbage_queue phase.
     gc->max_free_cnt = 0;
 
+    // after gc run, tables move from sweep_queue into garbage_queue.
     do {
         st_ut_eq(ST_OK, st_gc_run(gc), "");
     } while (!st_list_empty(&gc->mark_queue) || !st_list_empty(&gc->sweep_queue));
@@ -346,13 +378,12 @@ st_test(table, run_gc_in_mark_sweep) {
     st_ut_eq(50, i, "");
 
     gc->max_free_cnt = 50;
-
     clean_root_table(root);
 
     free_table_pool(table_pool);
 }
 
-st_test(table, run_gc_in_mark_prev_sweep) {
+st_test(table, mark_in_prev_sweep_queue) {
 
     st_table_t *t;
     st_table_t *root;
@@ -364,17 +395,22 @@ st_test(table, run_gc_in_mark_prev_sweep) {
 
     add_tables_into_root(root, 100, 100);
 
+    // push 1 table to sweep queue.
     st_ut_eq(ST_OK, st_table_new(table_pool, &t), "");
     st_ut_eq(ST_OK, st_gc_push_to_sweep(gc, &t->gc_head), "");
 
+    // push 50 tables to mark_queue and sweep_queue
+    // the 50 tables will be freed in the second gc round.
     for (int i = 0; i < 50; i++) {
         st_ut_eq(ST_OK, st_table_new(table_pool, &t), "");
         st_ut_eq(ST_OK, st_gc_push_to_mark(gc, &t->gc_head), "");
         st_ut_eq(ST_OK, st_gc_push_to_sweep(gc, &t->gc_head), "");
     }
 
+    // let gc stop before free table in garbage_queue phase.
     gc->max_free_cnt = 0;
 
+    //after gc run, 50 tables moved from sweep_queue to remained_queue.
     do {
         st_ut_eq(ST_OK, st_gc_run(gc), "");
     } while (!st_list_empty(&gc->mark_queue) || !st_list_empty(&gc->sweep_queue));
@@ -387,11 +423,15 @@ st_test(table, run_gc_in_mark_prev_sweep) {
     }
 
     st_ut_eq(50, i, "");
+
+    // 1 table only pushed to sweep queue, will moved into garbage_queue.
     st_ut_eq(0, st_list_empty(&gc->garbage_queue), "");
 
     gc->max_free_cnt = 50;
     int prev_reachable_mark = st_gc_status_reachable(gc);
 
+    // run gc last step, 50 tables will move into prev_sweep_queue
+    // 1 table will be freed.
     st_ut_eq(ST_OK, st_gc_run(gc), "");
 
     st_ut_eq(1, st_list_empty(&gc->mark_queue), "");
@@ -405,10 +445,15 @@ st_test(table, run_gc_in_mark_prev_sweep) {
         i++;
     }
     st_ut_eq(50, i, "");
+
+    // first gc round has been finished.
     st_ut_eq(0, gc->begin, "");
 
+    // let gc stop before free table in garbage_queue phase.
     gc->max_free_cnt = 0;
 
+    // run next gc round.
+    // after run gc, 50 tables will move from prev_sweep_queue into garbage_queue.
     do {
         st_ut_eq(ST_OK, st_gc_run(gc), "");
     } while (!st_list_empty(&gc->mark_queue) || !st_list_empty(&gc->prev_sweep_queue));
@@ -433,7 +478,7 @@ st_test(table, run_gc_in_mark_prev_sweep) {
     free_table_pool(table_pool);
 }
 
-st_test(table, run_gc_in_free_garbage) {
+st_test(table, free_garbage_table) {
 
     st_table_t *t;
     st_table_t *root;
@@ -443,6 +488,7 @@ st_test(table, run_gc_in_free_garbage) {
     st_table_new(table_pool, &root);
     st_ut_eq(ST_OK, st_gc_add_root(gc, &root->gc_head), "");
 
+    // current has created 1101 tables.
     add_tables_into_root(root, 100, 10);
 
     char key_buf[11] = {0};
@@ -452,19 +498,22 @@ st_test(table, run_gc_in_free_garbage) {
         st_ut_eq(ST_OK, st_table_new(table_pool, &t), "");
         add_sub_table(root, key_buf, t);
 
+        //push 50 tables to sweep queue, but the tables has added into root.
         st_ut_eq(ST_OK, st_gc_push_to_sweep(gc, &t->gc_head), "");
     }
 
     for (int i = 0; i < 50; i++) {
         st_ut_eq(ST_OK, st_table_new(table_pool, &t), "");
+
+        //push 50 tables to sweep queue, the tables will be free.
         st_ut_eq(ST_OK, st_gc_push_to_sweep(gc, &t->gc_head), "");
     }
 
-    st_ut_eq(1201, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
+    // current has created 1201 tables.
+    st_ut_eq(1201, remain_table_cnt(table_pool), "");
 
-    do {
-        st_ut_eq(ST_OK, st_gc_run(gc), "");
-    } while (gc->begin);
+    // after gc run, the 50 tables have not added into root, will be freed.
+    run_gc_round(gc);
 
     st_ut_eq(1, st_list_empty(&gc->mark_queue), "");
     st_ut_eq(0, st_list_empty(&gc->prev_sweep_queue), "");
@@ -472,18 +521,15 @@ st_test(table, run_gc_in_free_garbage) {
     st_ut_eq(1, st_list_empty(&gc->garbage_queue), "");
     st_ut_eq(1, st_list_empty(&gc->remained_queue), "");
 
-    st_ut_eq(1151, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
+    st_ut_eq(1151, remain_table_cnt(table_pool), "");
 
     clean_root_table(root);
     free_table_pool(table_pool);
 }
 
-st_test(table, run_gc_in_once) {
 
-    int ret;
-    int64_t start = 0;
-    int64_t end = 0;
-    int64_t use_usec = 0;
+st_test(table, run_gc_many_rounds) {
+
     st_table_t *t, *root;
     st_table_pool_t *table_pool = alloc_table_pool();
     st_gc_t *gc = &table_pool->gc;
@@ -492,62 +538,43 @@ st_test(table, run_gc_in_once) {
     st_ut_eq(ST_OK, st_gc_add_root(gc, &root->gc_head), "");
 
     add_tables_into_root(root, 100, 10);
+    // current has created 1101 tables.
 
     for (int i = 0; i < 10; i++) {
 
         for (int j = 0; j < 10; j++) {
             st_ut_eq(ST_OK, st_table_new(table_pool, &t), "");
-            st_ut_eq(ST_OK, st_gc_push_to_mark(gc, &t->gc_head), "");
 
+            // push 10 tables to mark_queue and sweep_queue
+            // the 10 tables will be freed in the second gc round.
+            st_ut_eq(ST_OK, st_gc_push_to_mark(gc, &t->gc_head), "");
             st_ut_eq(ST_OK, st_gc_push_to_sweep(gc, &t->gc_head), "");
         }
 
         for (int j = 0; j < 10; j++) {
+            // push 10 tables to sweep_queue
+            // the 10 tables will be freed in the first gc round.
             st_ut_eq(ST_OK, st_table_new(table_pool, &t), "");
             st_ut_eq(ST_OK, st_gc_push_to_sweep(gc, &t->gc_head), "");
         }
 
-        st_ut_eq(1121, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
+        st_ut_eq(1121, remain_table_cnt(table_pool), "");
 
         int old_round = gc->round;
 
-        do {
-            st_time_in_usec(&start);
-            ret = st_gc_run(gc);
-            st_time_in_usec(&end);
+        for (int j = 0; j < 2; j++) {
+            run_gc_round(gc);
 
-            st_ut_eq(1, ret == ST_OK || ret == ST_NO_GC_DATA, "");
-
-            use_usec = end - start;
-            st_ut_lt(use_usec, 1500, "");
-            st_ut_gt(use_usec, 1, "");
-
-            st_ut_gt(gc->max_visit_cnt, 10, "");
-            st_ut_gt(gc->max_free_cnt, 10, "");
-        } while (gc->begin);
-
-        st_ut_eq(1111, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-
-        st_ut_eq(old_round + 4, gc->round, "");
-
-        do {
-            st_time_in_usec(&start);
-            ret = st_gc_run(gc);
-            st_time_in_usec(&end);
-
-            st_ut_eq(1, ret == ST_OK || ret == ST_NO_GC_DATA, "");
-
-            use_usec = end - start;
-            st_ut_lt(use_usec, 1500, "");
-            st_ut_gt(use_usec, 1, "");
-
-            st_ut_gt(gc->max_visit_cnt, 10, "");
-            st_ut_gt(gc->max_free_cnt, 10, "");
-        } while (gc->begin);
-
-        st_ut_eq(1101, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-
-        st_ut_eq(old_round + 8, gc->round, "");
+            if (j == 0) {
+                // after first gc round, 10 tables has been freed.
+                st_ut_eq(1111, remain_table_cnt(table_pool), "");
+                st_ut_eq(old_round + 4, gc->round, "");
+            } else {
+                // after second gc round, the other 10 tables has been freed.
+                st_ut_eq(1101, remain_table_cnt(table_pool), "");
+                st_ut_eq(old_round + 8, gc->round, "");
+            }
+        }
 
         st_ut_eq(1, st_list_empty(&gc->mark_queue), "");
         st_ut_eq(1, st_list_empty(&gc->prev_sweep_queue), "");
@@ -559,7 +586,7 @@ st_test(table, run_gc_in_once) {
     free_table_pool(table_pool);
 }
 
-st_test(table, run_gc_destroy) {
+st_test(table, destroy_gc) {
 
     st_table_t *root;
     st_table_pool_t *table_pool = alloc_table_pool();
@@ -577,7 +604,7 @@ st_test(table, run_gc_destroy) {
 
     st_ut_eq(ST_OK, st_gc_destroy(&table_pool->gc), "");
 
-    st_ut_eq(0, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
+    st_ut_eq(0, remain_table_cnt(table_pool), "");
 }
 
 st_ut_main;
