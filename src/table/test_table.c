@@ -39,11 +39,19 @@ static int _slab_size_to_index(uint64_t size) {
     return st_bit_msb(size) + 1;
 }
 
-static ssize_t get_alloc_num_in_slab(st_table_pool_t *pool, uint64_t size) {
+static ssize_t get_alloc_cnt_in_slab(st_table_pool_t *pool, uint64_t size) {
 
     int idx = _slab_size_to_index(size);
 
     return pool->slab_pool.groups[idx].stat.current.alloc.cnt;
+}
+
+static ssize_t remain_table_cnt(st_table_pool_t *pool) {
+    return get_alloc_cnt_in_slab(pool, sizeof(st_table_t));
+}
+
+static ssize_t remain_element_cnt(st_table_pool_t *pool, uint64_t element_size) {
+    return get_alloc_cnt_in_slab(pool, element_size);
 }
 
 static st_table_pool_t *alloc_table_pool() {
@@ -135,7 +143,7 @@ st_test(table, new_free) {
 
     st_ut_eq(ST_OK, st_table_new(pool, &t), "");
 
-    st_ut_eq(1, get_alloc_num_in_slab(pool, sizeof(st_table_t)), "");
+    st_ut_eq(1, remain_table_cnt(pool), "");
 
     st_ut_eq(1, st_rbtree_is_empty(&t->elements), "");
     st_ut_eq(t->pool, pool, "");
@@ -148,16 +156,16 @@ st_test(table, new_free) {
         st_str_t value = st_str_wrap(value_buf, sizeof(value_buf));
 
         st_ut_eq(ST_OK, st_table_add_key_value(t, key, value), "");
-        st_ut_eq(i + 1, get_alloc_num_in_slab(pool, element_size), "");
+        st_ut_eq(i + 1, remain_element_cnt(pool, element_size), "");
     }
 
-    st_ut_eq(100, get_alloc_num_in_slab(pool, element_size), "");
+    st_ut_eq(100, remain_element_cnt(pool, element_size), "");
 
     st_ut_eq(ST_OK, st_table_remove_all(t), "");
     st_ut_eq(ST_OK, st_table_free(t), "");
 
-    st_ut_eq(0, get_alloc_num_in_slab(pool, sizeof(st_table_t)), "");
-    st_ut_eq(0, get_alloc_num_in_slab(pool, element_size), "");
+    st_ut_eq(0, remain_table_cnt(pool), "");
+    st_ut_eq(0, remain_element_cnt(pool, element_size), "");
 
     st_ut_eq(ST_ARG_INVALID, st_table_new(NULL, &t), "");
     st_ut_eq(ST_ARG_INVALID, st_table_new(pool, NULL), "");
@@ -167,7 +175,7 @@ st_test(table, new_free) {
     free_table_pool(pool);
 }
 
-st_test(table, add_value) {
+st_test(table, add_key_value) {
 
     st_table_t *t;
     st_str_t found;
@@ -178,8 +186,8 @@ st_test(table, add_value) {
 
     st_table_new(table_pool, &t);
 
-    st_ut_eq(1, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-    st_ut_eq(0, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(1, remain_table_cnt(table_pool), "");
+    st_ut_eq(0, remain_element_cnt(table_pool, element_size), "");
 
     for (int i = 0; i < 100; i++) {
         st_str_t key = st_str_wrap(&i, sizeof(i));
@@ -189,20 +197,20 @@ st_test(table, add_value) {
 
         st_ut_eq(ST_OK, st_table_add_key_value(t, key, value), "");
 
-        st_ut_eq(i + 1, get_alloc_num_in_slab(table_pool, element_size), "");
+        st_ut_eq(i + 1, remain_element_cnt(table_pool, element_size), "");
 
         st_ut_eq(ST_OK, st_table_get_value(t, key, &found), "");
         st_ut_eq(0, st_str_cmp(&found, &value), "");
 
         st_ut_eq(ST_EXISTED, st_table_add_key_value(t, key, value), "");
 
-        st_ut_eq(i + 1, get_alloc_num_in_slab(table_pool, element_size), "");
+        st_ut_eq(i + 1, remain_element_cnt(table_pool, element_size), "");
 
         st_ut_eq(i + 1, t->element_cnt, "");
     }
 
-    st_ut_eq(1, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-    st_ut_eq(100, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(1, remain_table_cnt(table_pool), "");
+    st_ut_eq(100, remain_element_cnt(table_pool, element_size), "");
 
     st_str_t key = st_str_const("aa");
     st_str_t value = st_str_const("bb");
@@ -210,6 +218,60 @@ st_test(table, add_value) {
     st_ut_eq(ST_ARG_INVALID, st_table_add_key_value(NULL, key, value), "");
     st_ut_eq(ST_ARG_INVALID, st_table_add_key_value(t, (st_str_t)st_str_null, value), "");
     st_ut_eq(ST_ARG_INVALID, st_table_add_key_value(t, key, (st_str_t)st_str_null), "");
+
+    st_table_remove_all(t);
+    st_table_free(t);
+    free_table_pool(table_pool);
+}
+
+st_test(table, set_key_value) {
+
+    st_table_t *t;
+    st_str_t found;
+    int value_buf[40] = {0};
+
+    st_table_pool_t *table_pool = alloc_table_pool();
+    int element_size = sizeof(st_table_element_t) + sizeof(int) + sizeof(value_buf);
+
+    st_table_new(table_pool, &t);
+
+    st_ut_eq(1, remain_table_cnt(table_pool), "");
+    st_ut_eq(0, remain_element_cnt(table_pool, element_size), "");
+
+    for (int i = 0; i < 100; i++) {
+        st_str_t key = st_str_wrap(&i, sizeof(i));
+
+        value_buf[0] = i;
+        st_str_t value = st_str_wrap(value_buf, sizeof(value_buf));
+        st_ut_eq(ST_OK, st_table_set_key_value(t, key, value), "");
+
+        st_ut_eq(i + 1, remain_element_cnt(table_pool, element_size), "");
+
+        st_ut_eq(ST_OK, st_table_get_value(t, key, &found), "");
+        st_ut_eq(0, st_str_cmp(&found, &value), "");
+
+        value_buf[0] = i + 1000;
+        value = (st_str_t)st_str_wrap(value_buf, sizeof(value_buf));
+
+        st_ut_eq(ST_OK, st_table_set_key_value(t, key, value), "");
+        st_ut_eq(ST_OK, st_table_get_value(t, key, &found), "");
+
+        st_ut_eq(0, st_str_cmp(&found, &value), "");
+
+        st_ut_eq(i + 1, remain_element_cnt(table_pool, element_size), "");
+
+        st_ut_eq(i + 1, t->element_cnt, "");
+    }
+
+    st_ut_eq(1, remain_table_cnt(table_pool), "");
+    st_ut_eq(100, remain_element_cnt(table_pool, element_size), "");
+
+    st_str_t key = st_str_const("aa");
+    st_str_t value = st_str_const("bb");
+
+    st_ut_eq(ST_ARG_INVALID, st_table_set_key_value(NULL, key, value), "");
+    st_ut_eq(ST_ARG_INVALID, st_table_set_key_value(t, (st_str_t)st_str_null, value), "");
+    st_ut_eq(ST_ARG_INVALID, st_table_set_key_value(t, key, (st_str_t)st_str_null), "");
 
     st_table_remove_all(t);
     st_table_free(t);
@@ -226,8 +288,8 @@ st_test(table, remove_all) {
 
     st_table_new(table_pool, &t);
 
-    st_ut_eq(1, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-    st_ut_eq(0, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(1, remain_table_cnt(table_pool), "");
+    st_ut_eq(0, remain_element_cnt(table_pool, element_size), "");
 
     for (int i = 0; i < 100; i++) {
         st_str_t key = st_str_wrap(&i, sizeof(i));
@@ -236,23 +298,23 @@ st_test(table, remove_all) {
         st_str_t value = st_str_wrap(value_buf, sizeof(value_buf));
         st_ut_eq(ST_OK, st_table_add_key_value(t, key, value), "");
 
-        st_ut_eq(i + 1, get_alloc_num_in_slab(table_pool, element_size), "");
+        st_ut_eq(i + 1, remain_element_cnt(table_pool, element_size), "");
         st_ut_eq(i + 1, t->element_cnt, "");
     }
 
-    st_ut_eq(1, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-    st_ut_eq(100, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(1, remain_table_cnt(table_pool), "");
+    st_ut_eq(100, remain_element_cnt(table_pool, element_size), "");
 
     st_ut_eq(ST_OK, st_table_remove_all(t), "");
 
-    st_ut_eq(1, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-    st_ut_eq(0, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(1, remain_table_cnt(table_pool), "");
+    st_ut_eq(0, remain_element_cnt(table_pool, element_size), "");
 
     st_table_free(t);
     free_table_pool(table_pool);
 }
 
-st_test(table, remove_value) {
+st_test(table, remove_key) {
 
     st_table_t *t;
     st_str_t found;
@@ -264,8 +326,8 @@ st_test(table, remove_value) {
 
     st_table_new(table_pool, &t);
 
-    st_ut_eq(1, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-    st_ut_eq(0, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(1, remain_table_cnt(table_pool), "");
+    st_ut_eq(0, remain_element_cnt(table_pool, element_size), "");
 
     for (int i = 0; i < 100; i++) {
         st_str_t key = st_str_wrap(&i, sizeof(i));
@@ -276,20 +338,20 @@ st_test(table, remove_value) {
         st_table_add_key_value(t, key, value);
     }
 
-    st_ut_eq(100, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(100, remain_element_cnt(table_pool, element_size), "");
 
     for (int i = 0; i < 100; i++) {
         st_str_t key = st_str_wrap(&i, sizeof(i));
 
         st_ut_eq(ST_OK, st_table_remove_key(t, key), "");
 
-        st_ut_eq(99 - i, get_alloc_num_in_slab(table_pool, element_size), "");
+        st_ut_eq(99 - i, remain_element_cnt(table_pool, element_size), "");
         st_ut_eq(99 - i, t->element_cnt, "");
 
         st_ut_eq(ST_NOT_FOUND, st_table_get_value(t, key, &found), "");
     }
 
-    st_ut_eq(0, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(0, remain_element_cnt(table_pool, element_size), "");
 
     st_ut_eq(ST_ARG_INVALID, st_table_remove_key(NULL, (st_str_t)st_str_const("val")), "");
     st_ut_eq(ST_ARG_INVALID, st_table_remove_key(t, (st_str_t)st_str_null), "");
@@ -299,7 +361,7 @@ st_test(table, remove_value) {
     free_table_pool(table_pool);
 }
 
-st_test(table, iter_next_value) {
+st_test(table, iter_next_key_value) {
 
     int i;
     st_table_t *t;
@@ -378,16 +440,16 @@ st_test(table, add_remove_table) {
     st_table_new(table_pool, &table);
     add_sub_table(root, "test_table", table);
 
-    st_ut_eq(2, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-    st_ut_eq(1, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(2, remain_table_cnt(table_pool), "");
+    st_ut_eq(1, remain_element_cnt(table_pool, element_size), "");
 
     for (int i = 0; i < 100; i++) {
         sprintf(key_buf, "%010d", i);
         st_table_new(table_pool, &t);
         add_sub_table(table, key_buf, t);
 
-        st_ut_eq(i + 3, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-        st_ut_eq(i + 2, get_alloc_num_in_slab(table_pool, element_size), "");
+        st_ut_eq(i + 3, remain_table_cnt(table_pool), "");
+        st_ut_eq(i + 2, remain_element_cnt(table_pool, element_size), "");
     }
 
     for (int i = 0; i < 100; i++) {
@@ -398,8 +460,8 @@ st_test(table, add_remove_table) {
         run_gc_one_round(&table_pool->gc);
         run_gc_one_round(&table_pool->gc);
 
-        st_ut_eq(101 - i, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-        st_ut_eq(100 - i, get_alloc_num_in_slab(table_pool, element_size), "");
+        st_ut_eq(101 - i, remain_table_cnt(table_pool), "");
+        st_ut_eq(100 - i, remain_element_cnt(table_pool, element_size), "");
     }
 
     st_ut_eq(ST_OK, st_table_remove_all(root), "");
@@ -408,8 +470,8 @@ st_test(table, add_remove_table) {
     st_ut_eq(ST_OK, st_gc_remove_root(&table_pool->gc, &root->gc_head), "");
     st_ut_eq(ST_OK, st_table_free(root), "");
 
-    st_ut_eq(0, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-    st_ut_eq(0, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(0, remain_table_cnt(table_pool), "");
+    st_ut_eq(0, remain_element_cnt(table_pool, element_size), "");
 
     free_table_pool(table_pool);
 }
@@ -426,8 +488,8 @@ int block_all_children(int sem_id) {
     return ST_OK;
 }
 
-int wakeup_all_children(int sem_id, int children_num) {
-    struct sembuf sem = {.sem_num = 0, .sem_op = children_num, .sem_flg = SEM_UNDO};
+int wakeup_all_children(int sem_id, int children_cnt) {
+    struct sembuf sem = {.sem_num = 0, .sem_op = children_cnt, .sem_flg = SEM_UNDO};
 
     int ret = semop(sem_id, &sem, 1);
     if (ret == -1) {
@@ -449,7 +511,7 @@ int wait_sem(int sem_id) {
 }
 
 static int run_processes(int sem_id, process_f func, void *arg, int *pids,
-                         int process_num) {
+                         int process_cnt) {
 
     int child;
 
@@ -458,7 +520,7 @@ static int run_processes(int sem_id, process_f func, void *arg, int *pids,
         return ret;
     }
 
-    for (int i = 0; i < process_num; i++) {
+    for (int i = 0; i < process_cnt; i++) {
 
         child = fork();
 
@@ -480,12 +542,12 @@ static int run_processes(int sem_id, process_f func, void *arg, int *pids,
 
     sleep(2);
 
-    ret = wakeup_all_children(sem_id, process_num);
+    ret = wakeup_all_children(sem_id, process_cnt);
     if (ret != ST_OK) {
         return ret;
     }
 
-    return wait_children(pids, process_num);
+    return wait_children(pids, process_cnt);
 }
 
 static int new_tables(int process_id, st_table_t *root) {
@@ -568,7 +630,7 @@ static int add_tables(int process_id, st_table_t *root) {
     return ST_OK;
 }
 
-st_test(table, handle_table_in_processes) {
+st_test(table, test_table_in_processes) {
 
     st_table_pool_t *table_pool = alloc_table_pool();
     int value_buf[40] = {0};
@@ -586,12 +648,12 @@ st_test(table, handle_table_in_processes) {
 
     st_ut_eq(ST_OK, run_processes(sem_id, (process_f)new_tables, root, new_table_pids, 10), "");
 
-    st_ut_eq(1001, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
+    st_ut_eq(1001, remain_table_cnt(table_pool), "");
 
     st_ut_eq(ST_OK, run_processes(sem_id, (process_f)add_tables, root, add_table_pids, 10), "");
 
-    st_ut_eq(1001, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-    st_ut_eq(1000, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(1001, remain_table_cnt(table_pool), "");
+    st_ut_eq(1000, remain_element_cnt(table_pool, element_size), "");
 
     st_ut_eq(ST_OK, st_table_remove_all(root), "");
     run_gc_one_round(&table_pool->gc);
@@ -599,8 +661,8 @@ st_test(table, handle_table_in_processes) {
     st_ut_eq(st_gc_remove_root(&table_pool->gc, &root->gc_head), ST_OK, "");
     st_ut_eq(ST_OK, st_table_free(root), "");
 
-    st_ut_eq(0, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-    st_ut_eq(0, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(0, remain_table_cnt(table_pool), "");
+    st_ut_eq(0, remain_element_cnt(table_pool, element_size), "");
 
     semctl(sem_id, 0, IPC_RMID);
     free_table_pool(table_pool);
@@ -621,32 +683,32 @@ st_test(table, clear_circular_ref_in_same_table) {
     st_table_new(table_pool, &t);
     add_sub_table(root, "test_table", t);
 
-    st_ut_eq(2, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-    st_ut_eq(1, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(2, remain_table_cnt(table_pool), "");
+    st_ut_eq(1, remain_element_cnt(table_pool, element_size), "");
 
     for (int i = 0; i < 100; i++) {
 
         sprintf(key_buf, "%010d", i);
         add_sub_table(t, key_buf, t);
 
-        st_ut_eq(i + 2, get_alloc_num_in_slab(table_pool, element_size), "");
+        st_ut_eq(i + 2, remain_element_cnt(table_pool, element_size), "");
     }
 
-    st_ut_eq(2, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-    st_ut_eq(101, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(2, remain_table_cnt(table_pool), "");
+    st_ut_eq(101, remain_element_cnt(table_pool, element_size), "");
 
     st_ut_eq(ST_OK, st_table_remove_all(root), "");
 
     run_gc_one_round(&table_pool->gc);
     run_gc_one_round(&table_pool->gc);
 
-    st_ut_eq(1, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-    st_ut_eq(0, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(1, remain_table_cnt(table_pool), "");
+    st_ut_eq(0, remain_element_cnt(table_pool, element_size), "");
 
     st_ut_eq(st_gc_remove_root(&table_pool->gc, &root->gc_head), ST_OK, "");
     st_ut_eq(ST_OK, st_table_free(root), "");
 
-    st_ut_eq(0, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
+    st_ut_eq(0, remain_table_cnt(table_pool), "");
 
     free_table_pool(table_pool);
 }
@@ -732,8 +794,8 @@ st_test(table, test_circular_ref) {
 
     st_ut_eq(ST_OK, run_processes(sem_id, (process_f)test_circular_ref, table_pool, pids, 10), "");
 
-    st_ut_eq(0, get_alloc_num_in_slab(table_pool, sizeof(st_table_t)), "");
-    st_ut_eq(0, get_alloc_num_in_slab(table_pool, element_size), "");
+    st_ut_eq(0, remain_table_cnt(table_pool), "");
+    st_ut_eq(0, remain_element_cnt(table_pool, element_size), "");
 
     semctl(sem_id, 0, IPC_RMID);
     free_table_pool(table_pool);

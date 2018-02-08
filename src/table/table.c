@@ -41,20 +41,39 @@ static int st_table_free_element(st_table_t *table, st_table_element_t *elem) {
     return st_slab_obj_free(&pool->slab_pool, elem);
 }
 
-static int st_table_add_element(st_table_t *table, st_table_element_t *elem) {
+static int st_table_add_element(st_table_t *table, st_table_element_t *new_elem, int force,
+                                st_table_element_t **existed_elem) {
+
+    st_rbtree_node_t *existed_node = NULL;
 
     int ret = st_robustlock_lock(&table->lock);
     if (ret != ST_OK) {
         return ret;
     }
 
-    ret = st_rbtree_insert(&table->elements, &elem->rbnode, 0);
-    if (ret != ST_OK) {
+    ret = st_rbtree_insert(&table->elements, &new_elem->rbnode, 0, &existed_node);
+    if (ret != ST_OK && ret != ST_EXISTED) {
         goto quit;
     }
 
-    table->version++;
-    table->element_cnt++;
+    if (ret == ST_OK) {
+        table->element_cnt++;
+        table->version++;
+        goto quit;
+    }
+
+    // element is existed.
+    if (force) {
+        int replace_ret = st_rbtree_replace(&table->elements, existed_node, &new_elem->rbnode);
+        if (replace_ret != ST_OK) {
+            ret = replace_ret;
+            goto quit;
+        }
+
+        table->version++;
+
+        *existed_elem = st_owner(existed_node, st_table_element_t, rbnode);
+    }
 
 quit:
     st_robustlock_unlock_err_abort(&table->lock);
@@ -145,8 +164,7 @@ static int st_table_run_gc_if_needed(st_table_t *table) {
         return ST_OK;
     }
 
-    // 0x9e3779b97f4a7c15 is bonacci hashing value, 0x8000000000000000 is half of 2^64.
-    if ((uintptr_t)table * 0x9e3779b97f4a7c15 > 0x8000000000000000) {
+    if (fib_hash64((uintptr_t)table) > (1UL << 63)) {
         return ST_OK;
     }
 
@@ -299,6 +317,70 @@ quit:
     return ret;
 }
 
+int st_table_set_key_value(st_table_t *table, st_str_t key, st_str_t value) {
+
+    st_must(table != NULL, ST_ARG_INVALID);
+    st_must(table->inited, ST_UNINITED);
+    st_must(key.bytes != NULL && key.len > 0, ST_ARG_INVALID);
+    st_must(value.bytes != NULL && value.len > 0, ST_ARG_INVALID);
+
+    st_table_t *t = NULL;
+    st_table_element_t *elem = NULL;
+    st_table_element_t *existed_elem = NULL;
+
+    st_gc_t *gc = &table->pool->gc;
+
+    int ret = st_table_new_element(table, key, value, &elem);
+    if (ret != ST_OK) {
+        return ret;
+    }
+
+    ret = st_robustlock_lock(&gc->lock);
+    if (ret != ST_OK) {
+        st_table_free_element(table, elem);
+        return ret;
+    }
+
+    ret = st_table_add_element(table, elem, 1, &existed_elem);
+    if (ret != ST_OK && ret != ST_EXISTED) {
+        goto quit;
+    }
+
+    if (ret == ST_EXISTED) {
+
+        if (st_types_is_table(existed_elem->value.type)) {
+            t = st_table_get_table_addr_from_value(existed_elem->value);
+
+            ret = st_gc_push_to_sweep(gc, &t->gc_head);
+            if (ret != ST_OK) {
+                st_table_free_element(table, existed_elem);
+                goto quit;
+            }
+        }
+
+        ret = st_table_free_element(table, existed_elem);
+        if (ret != ST_OK) {
+            goto quit;
+        }
+    }
+
+    if (st_types_is_table(value.type)) {
+        t = st_table_get_table_addr_from_value(value);
+
+        ret = st_gc_push_to_mark(gc, &t->gc_head);
+    }
+
+quit:
+    st_robustlock_unlock_err_abort(&gc->lock);
+
+    if (ret == ST_OK) {
+        return st_table_run_gc_if_needed(table);
+    }
+
+    st_table_free_element(table, elem);
+    return ret;
+}
+
 int st_table_add_key_value(st_table_t *table, st_str_t key, st_str_t value) {
 
     st_must(table != NULL, ST_ARG_INVALID);
@@ -314,15 +396,16 @@ int st_table_add_key_value(st_table_t *table, st_str_t key, st_str_t value) {
     }
 
     if (st_types_is_table(value.type)) {
+
         st_table_t *t = st_table_get_table_addr_from_value(value);
         st_gc_t *gc = &table->pool->gc;
 
         ret = st_robustlock_lock(&gc->lock);
         if (ret != ST_OK) {
-            return ret;
+            goto quit;
         }
 
-        ret = st_table_add_element(table, elem);
+        ret = st_table_add_element(table, elem, 0, NULL);
         if (ret != ST_OK) {
             st_robustlock_unlock_err_abort(&gc->lock);
             goto quit;
@@ -333,14 +416,14 @@ int st_table_add_key_value(st_table_t *table, st_str_t key, st_str_t value) {
         st_robustlock_unlock_err_abort(&gc->lock);
 
     } else {
-        ret = st_table_add_element(table, elem);
+        ret = st_table_add_element(table, elem, 0, NULL);
     }
 
-quit:
     if (ret == ST_OK) {
         return st_table_run_gc_if_needed(table);
     }
 
+quit:
     st_table_free_element(table, elem);
     return ret;
 }

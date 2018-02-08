@@ -14,6 +14,7 @@
 #include "slab/slab.h"
 #include "str/str.h"
 #include "gc/gc.h"
+#include "hash/fibonacci.h"
 
 typedef struct st_table_element_s st_table_element_t;
 typedef struct st_table_iter_s st_table_iter_t;
@@ -80,6 +81,8 @@ int st_table_remove_all_for_gc(st_table_t *table);
 int st_table_remove_all(st_table_t *table);
 
 int st_table_add_key_value(st_table_t *table, st_str_t key, st_str_t value);
+
+int st_table_set_key_value(st_table_t *table, st_str_t key, st_str_t value);
 
 int st_table_remove_key(st_table_t *table, st_str_t key);
 
