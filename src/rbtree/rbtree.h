@@ -32,7 +32,8 @@ struct st_rbtree_s {
 }
 
 int st_rbtree_init(st_rbtree_t *tree, st_rbtree_compare_pt cmp);
-int st_rbtree_insert(st_rbtree_t *tree, st_rbtree_node_t *node, int allow_exist);
+int st_rbtree_insert(st_rbtree_t *tree, st_rbtree_node_t *node, int allow_equal,
+                     st_rbtree_node_t **existed_node);
 int st_rbtree_delete(st_rbtree_t *tree, st_rbtree_node_t *node);
 
 st_rbtree_node_t *st_rbtree_left_most(st_rbtree_t *tree);

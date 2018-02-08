@@ -49,7 +49,7 @@ st_test(rbtree, left_most) {
     };
 
     for (int i = 0; i < st_nelts(objects); i++) {
-        st_rbtree_insert(&tree, &objects[i].rb_node, 1);
+        st_rbtree_insert(&tree, &objects[i].rb_node, 1, NULL);
 
         test_object *obj = (test_object *)st_rbtree_left_most(&tree);
 
@@ -76,7 +76,7 @@ st_test(rbtree, right_most) {
     };
 
     for (int i = 0; i < st_nelts(objects); i++) {
-        st_rbtree_insert(&tree, &objects[i].rb_node, 1);
+        st_rbtree_insert(&tree, &objects[i].rb_node, 1, NULL);
 
         test_object *obj = (test_object *)st_rbtree_right_most(&tree);
 
@@ -93,7 +93,7 @@ st_test(rbtree, empty) {
     st_ut_eq(1, st_rbtree_is_empty(&tree), "rbtree is empty");
 
     test_object object = {.key = 1};
-    st_rbtree_insert(&tree, &object.rb_node, 1);
+    st_rbtree_insert(&tree, &object.rb_node, 1, NULL);
 
     st_ut_eq(0, st_rbtree_is_empty(&tree), "rbtree is not empty");
 }
@@ -149,7 +149,7 @@ st_test(rbtree, search) {
     st_rbtree_init(&tree, rbtree_cmp);
 
     for (int i = 0; i < st_nelts(objects); i++) {
-        st_rbtree_insert(&tree, &objects[i].rb_node, 1);
+        st_rbtree_insert(&tree, &objects[i].rb_node, 1, NULL);
     }
 
     for (int i = 0; i < st_nelts(cases); i++) {
@@ -212,7 +212,7 @@ st_test(rbtree, search_times) {
         }
 
         objects[i].key = tmp.key;
-        st_rbtree_insert(&tree, &objects[i].rb_node, 1);
+        st_rbtree_insert(&tree, &objects[i].rb_node, 1, NULL);
     }
 
     for (int i = 0; i < 1000; i++) {
@@ -238,7 +238,7 @@ void test_insert_with_search(int object_num) {
     for (int i = 0; i < object_num; i++) {
         objects[i].key = i;
 
-        st_rbtree_insert(&tree, &objects[i].rb_node, 1);
+        st_rbtree_insert(&tree, &objects[i].rb_node, 1, NULL);
 
         st_ut_eq(1, st_rbtree_node_is_inited(&objects[i].rb_node), "");
 
@@ -273,7 +273,7 @@ void test_delete_with_search(int object_num) {
 
     for (int i = 0; i < object_num; i++) {
         objects[i].key = i;
-        st_rbtree_insert(&tree, &objects[i].rb_node, 1);
+        st_rbtree_insert(&tree, &objects[i].rb_node, 1, NULL);
     }
 
     for (int i = object_num - 1; i >= 0; i--) {
@@ -325,7 +325,7 @@ void test_add_with_delete(int object_num, int average_add, int average_delete) {
         // add average_add num node into rbtree
         for (int j = 0; j < average_add; j++) {
             objects[i].key = i;
-            st_rbtree_insert(&tree, &objects[i].rb_node, 1);
+            st_rbtree_insert(&tree, &objects[i].rb_node, 1, NULL);
             i++;
         }
 
@@ -419,7 +419,7 @@ st_test(rbtree, replace) {
     };
 
     for (int i = 0; i < st_nelts(nodes); i++) {
-        st_rbtree_insert(&tree, &nodes[i].rb_node, 1);
+        st_rbtree_insert(&tree, &nodes[i].rb_node, 1, NULL);
     }
 
     /** test: replace sentinel */
@@ -515,21 +515,24 @@ st_test(rbtree, replace) {
 st_test(rbtree, insert_use_flag) {
 
     st_rbtree_t tree;
+    st_rbtree_node_t *existed_node = NULL;
 
     st_rbtree_init(&tree, rbtree_cmp);
 
     test_object obj1 = {.key = 50};
     test_object obj2 = {.key = 50};
 
-    st_ut_eq(ST_OK, st_rbtree_insert(&tree, &obj1.rb_node, 1), "");
+    st_ut_eq(ST_OK, st_rbtree_insert(&tree, &obj1.rb_node, 1, NULL), "");
 
-    st_ut_eq(ST_EXISTED, st_rbtree_insert(&tree, &obj2.rb_node, 0), "");
+    st_ut_eq(ST_EXISTED, st_rbtree_insert(&tree, &obj2.rb_node, 0, &existed_node), "");
+    st_ut_eq(existed_node, &obj1.rb_node, "");
 
-    st_ut_eq(ST_OK, st_rbtree_insert(&tree, &obj2.rb_node, 1), "");
+    st_ut_eq(ST_OK, st_rbtree_insert(&tree, &obj2.rb_node, 1, &existed_node), "");
+    st_ut_eq(existed_node, &obj1.rb_node, "");
 
-    st_ut_eq(ST_ARG_INVALID, st_rbtree_insert(NULL, &obj2.rb_node, 0), "");
-    st_ut_eq(ST_ARG_INVALID, st_rbtree_insert(&tree, NULL, 0), "");
-    st_ut_eq(ST_ARG_INVALID, st_rbtree_insert(&tree, &obj2.rb_node, 2), "");
+    st_ut_eq(ST_ARG_INVALID, st_rbtree_insert(NULL, &obj2.rb_node, 0, NULL), "");
+    st_ut_eq(ST_ARG_INVALID, st_rbtree_insert(&tree, NULL, 0, NULL), "");
+    st_ut_eq(ST_ARG_INVALID, st_rbtree_insert(&tree, &obj2.rb_node, 2, NULL), "");
 }
 
 st_test(rbtree, get_next) {
@@ -545,7 +548,7 @@ st_test(rbtree, get_next) {
 
     for (int i = 0; i < 1000; i++) {
         objects[i].key = i;
-        st_rbtree_insert(&tree, &objects[i].rb_node, 1);
+        st_rbtree_insert(&tree, &objects[i].rb_node, 1, NULL);
     }
 
     for (int i = 0; i < 1000; i++) {

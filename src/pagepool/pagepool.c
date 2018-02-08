@@ -114,7 +114,7 @@ static void st_pagepool_add_pages(st_pagepool_t *pool, st_pagepool_page_t *maste
     n = st_rbtree_search_eq(&pool->free_pages, &master->rbnode);
 
     if (n == NULL) {
-        st_rbtree_insert(&pool->free_pages, &master->rbnode, 1);
+        st_rbtree_insert(&pool->free_pages, &master->rbnode, 1, NULL);
         st_list_init(&master->lnode);
     } else {
         st_pagepool_page_t *found = st_owner(n, st_pagepool_page_t, rbnode);
