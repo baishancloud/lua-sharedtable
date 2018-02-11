@@ -22,6 +22,9 @@ typedef struct st_table_iter_s st_table_iter_t;
 typedef struct st_table_s st_table_t;
 typedef struct st_table_pool_s st_table_pool_t;
 
+#define ST_TABLE_NOT_PUSH_TO_GC 0
+#define ST_TABLE_PUSH_TO_GC 1
+
 struct st_table_iter_s {
     st_table_element_t *element;
     int64_t table_version;
