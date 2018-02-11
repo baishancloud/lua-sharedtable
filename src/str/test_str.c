@@ -323,6 +323,24 @@ st_test(str, cmp) {
         st_ut_eq(-1, st_str_cmp(nu,  emp), "");
     }
 
+    {
+        st_str_t *emp1 = &(st_str_t)st_str_empty;
+        st_str_t *emp2 = &(st_str_t)st_str_empty;
+
+        emp1->type = 0;
+        emp2->type = 0;
+
+        st_ut_eq(0, st_str_cmp(emp1, emp2), "");
+
+        emp1->type = 1;
+        emp2->type = 0;
+        st_ut_eq(1, st_str_cmp(emp1, emp2), "");
+
+        emp1->type = 0;
+        emp2->type = 1;
+        st_ut_eq(-1, st_str_cmp(emp1, emp2), "");
+    }
+
     struct case_s {
         char *a;
         char *b;

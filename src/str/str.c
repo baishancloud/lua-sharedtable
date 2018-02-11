@@ -195,6 +195,10 @@ st_str_cmp(const st_str_t *a, const st_str_t *b) {
     st_must(a != NULL, ST_ARG_INVALID);
     st_must(b != NULL, ST_ARG_INVALID);
 
+    if (a->type - b->type != 0) {
+        return a->type - b->type > 0 ? 1 : -1;
+    }
+
     if (a->bytes == NULL) {
         if (b->bytes == NULL) {
             return 0;
