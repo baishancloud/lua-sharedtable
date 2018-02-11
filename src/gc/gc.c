@@ -66,6 +66,8 @@ static int st_gc_table_unknown_children_to_queue(st_gc_t *gc, st_table_t *table,
             continue;
         }
 
+        gc->curr_visit_cnt++;
+
         st_list_insert_last(queue, lnode);
     }
 
@@ -96,30 +98,22 @@ static int st_gc_mark_reachable_tables(st_gc_t *gc) {
         ret = st_gc_table_unknown_children_to_queue(gc, t, &gc->mark_queue);
         st_assert(ret == ST_OK);
 
-        // 1 is current table.
-        gc->curr_visit_cnt = gc->curr_visit_cnt + 1 + t->element_cnt;
+        gc->curr_visit_cnt++;
     }
 
     return ST_OK;
 }
 
-static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev) {
+static int st_gc_mark_garbage_tables(st_gc_t *gc, st_list_t *queue) {
 
     int ret;
     st_gc_head_t *gc_head = NULL;
     st_table_t *t = NULL;
     st_list_t *node = NULL;
-    st_list_t *sweep_queue = NULL;
-
-    if (is_prev) {
-        sweep_queue = &gc->prev_sweep_queue;
-    } else {
-        sweep_queue = &gc->sweep_queue;
-    }
 
     while (gc->curr_visit_cnt < gc->max_visit_cnt) {
 
-        node = st_list_pop_first(sweep_queue);
+        node = st_list_pop_first(queue);
         if (node == NULL) {
             return ST_EMPTY;
         }
@@ -132,7 +126,7 @@ static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev) {
 
         } else if (gc_head->mark == st_gc_status_reachable(gc)) {
 
-            if (!is_prev) {
+            if (queue == &gc->sweep_queue) {
                 st_list_insert_last(&gc->remained_queue, node);
             }
 
@@ -142,14 +136,12 @@ static int st_gc_mark_garbage_tables(st_gc_t *gc, int is_prev) {
             gc_head->mark = st_gc_status_garbage(gc);
             st_list_insert_last(&gc->garbage_queue, node);
 
-            ret = st_gc_table_unknown_children_to_queue(gc, t, sweep_queue);
+            ret = st_gc_table_unknown_children_to_queue(gc, t, queue);
             st_assert(ret == ST_OK);
-
-            gc->curr_visit_cnt += t->element_cnt;
         }
 
         // add 1 is current table.
-        gc->curr_visit_cnt += 1;
+        gc->curr_visit_cnt++;
     }
 
     return ST_OK;
@@ -174,16 +166,14 @@ static int st_gc_mark_tables(st_gc_t *gc) {
         return ret;
     }
 
-    // mark tables garbage in prev_sweep_queue
-    ret = st_gc_mark_garbage_tables(gc, 1);
+    ret = st_gc_mark_garbage_tables(gc, &gc->prev_sweep_queue);
     if (ret == ST_OK) {
         goto quit;
     } else if (ret != ST_EMPTY) {
         return ret;
     }
 
-    // mark tables garbage in sweep_queue
-    ret = st_gc_mark_garbage_tables(gc, 0);
+    ret = st_gc_mark_garbage_tables(gc, &gc->sweep_queue);
     if (ret == ST_OK) {
         goto quit;
     } else if (ret != ST_EMPTY) {
