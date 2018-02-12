@@ -20,10 +20,12 @@
   (ST_INITTWICE),             \
   (ST_ARG_INVALID),           \
   (ST_STATE_INVALID),         \
+  (ST_TABLE_MODIFIED),        \
   (ST_IO),                    \
   (ST_NOT_FOUND),             \
   (ST_NOT_READY),             \
   (ST_NOT_EQUAL),             \
+  (ST_NOT_EMPTY),             \
   (ST_NO_GC_DATA),            \
   (ST_OUT_OF_ORDER),          \
   (ST_OUT_OF_MEMORY),         \
