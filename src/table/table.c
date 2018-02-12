@@ -342,21 +342,17 @@ int st_table_set_key_value(st_table_t *table, st_str_t key, st_str_t value) {
 
     ret = st_table_add_element(table, elem, 1, &existed_elem);
     if (ret != ST_OK && ret != ST_EXISTED) {
-        goto quit;
+        st_table_free_element(table, elem);
+        st_robustlock_unlock_err_abort(&gc->lock);
+        return ret;
     }
 
     if (ret == ST_EXISTED) {
-
         if (st_types_is_table(existed_elem->value.type)) {
             t = st_table_get_table_addr_from_value(existed_elem->value);
 
             ret = st_gc_push_to_sweep(gc, &t->gc_head);
             st_assert(ret == ST_OK);
-        }
-
-        ret = st_table_free_element(table, existed_elem);
-        if (ret != ST_OK) {
-            goto quit;
         }
     }
 
@@ -364,17 +360,19 @@ int st_table_set_key_value(st_table_t *table, st_str_t key, st_str_t value) {
         t = st_table_get_table_addr_from_value(value);
 
         ret = st_gc_push_to_mark(gc, &t->gc_head);
+        st_assert(ret == ST_OK);
     }
 
-quit:
     st_robustlock_unlock_err_abort(&gc->lock);
 
-    if (ret == ST_OK) {
-        return st_table_run_gc_if_needed(table);
+    if (existed_elem != NULL) {
+        ret = st_table_free_element(table, existed_elem);
+        if (ret != ST_OK) {
+            return ret;
+        }
     }
 
-    st_table_free_element(table, elem);
-    return ret;
+    return st_table_run_gc_if_needed(table);
 }
 
 int st_table_add_key_value(st_table_t *table, st_str_t key, st_str_t value) {
@@ -408,16 +406,18 @@ int st_table_add_key_value(st_table_t *table, st_str_t key, st_str_t value) {
         }
 
         ret = st_gc_push_to_mark(gc, &t->gc_head);
+        st_assert(ret == ST_OK);
 
         st_robustlock_unlock_err_abort(&gc->lock);
 
     } else {
         ret = st_table_add_element(table, elem, 0, NULL);
+        if (ret != ST_OK) {
+            goto quit;
+        }
     }
 
-    if (ret == ST_OK) {
-        return st_table_run_gc_if_needed(table);
-    }
+    return st_table_run_gc_if_needed(table);
 
 quit:
     st_table_free_element(table, elem);
