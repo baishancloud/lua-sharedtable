@@ -373,7 +373,7 @@ st_test(table, iter_next_key_value) {
     st_table_new(table_pool, &t);
 
     for (i = 0; i < 100; i++) {
-        st_str_t key = st_str_wrap(&i, sizeof(i));
+        st_str_t key = st_str_wrap_common(&i, ST_TYPES_INTEGER, sizeof(i));
 
         value_buf[0] = i;
         st_str_t value = st_str_wrap(value_buf, sizeof(value_buf));
@@ -385,12 +385,48 @@ st_test(table, iter_next_key_value) {
     st_str_t v1;
     st_str_t v2;
     st_table_iter_t iter;
-    st_table_iter_init(t, &iter);
+
+    int sides[] = { ST_SIDE_LEFT_EQ, ST_SIDE_RIGHT_EQ };
+    for (int cnt = 0; cnt < st_nelts(sides); cnt++) {
+        int null_index     = -1;
+        int boundary_index = 100;
+        int boundary_value = 99;
+
+        if (sides[cnt] == ST_SIDE_RIGHT_EQ) {
+            null_index     = 100;
+            boundary_index = -1;
+            boundary_value = 0;
+        }
+
+        for (int i = -1; i < 101; i++) {
+            st_str_t init_key = st_str_wrap_common(&i,
+                                                   ST_TYPES_INTEGER,
+                                                   sizeof(i));
+
+            int ret = st_table_iter_init(t, &iter, &init_key, sides[cnt]);
+            st_ut_eq(ST_OK, ret, "failed to init iterator with init_key");
+            if (i == null_index) {
+                st_ut_eq(NULL, iter.element, "init_key le failed");
+            }
+            else {
+                int value = *(int *)(iter.element->value.bytes);
+
+                if (i == boundary_index) {
+                    st_ut_eq(boundary_value, value, "failed to init iter");
+                }
+                else {
+                    st_ut_eq(i, value, "failed to init iter");
+                }
+            }
+        }
+    }
+
+    st_table_iter_init(t, &iter, NULL, 0);
 
     for (i = 0; i < 100; i++) {
         st_ut_eq(ST_OK, st_table_iter_next(t, &iter, &k, &v1), "");
 
-        st_str_t key = st_str_wrap(&i, sizeof(i));
+        st_str_t key = st_str_wrap_common(&i, ST_TYPES_INTEGER, sizeof(i));
         st_ut_eq(ST_OK, st_table_get_value(t, key, &v2), "");
 
         st_ut_eq(0, st_str_cmp(&k, &key), "");
@@ -399,7 +435,7 @@ st_test(table, iter_next_key_value) {
 
     st_ut_eq(ST_NOT_FOUND, st_table_iter_next(t, &iter, &k, &v1), "");
 
-    st_str_t key = st_str_wrap(&i, sizeof(i));
+    st_str_t key = st_str_wrap_common(&i, ST_TYPES_INTEGER, sizeof(i));
     value_buf[0] = 100;
     st_str_t value = st_str_wrap(value_buf, sizeof(value_buf));
     st_ut_eq(0, st_table_add_key_value(t, key, value), "");

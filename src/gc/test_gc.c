@@ -264,7 +264,7 @@ static int check_table_children_reachable(st_table_t *table, st_gc_t *gc) {
         return ret;
     }
 
-    ret = st_table_iter_init(table, &iter);
+    ret = st_table_iter_init(table, &iter, NULL, 0);
     if (ret != ST_OK) {
         goto quit;
     }

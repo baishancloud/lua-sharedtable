@@ -482,7 +482,12 @@ int st_table_get_value(st_table_t *table, st_str_t key, st_str_t *value) {
 }
 
 // lock table before use the function
-int st_table_iter_init(st_table_t *table, st_table_iter_t *iter) {
+int
+st_table_iter_init(st_table_t *table,
+                   st_table_iter_t *iter,
+                   st_str_t *init_key,
+                   int expected_side)
+{
 
     st_must(table != NULL, ST_ARG_INVALID);
     st_must(table->inited, ST_UNINITED);
@@ -490,7 +495,18 @@ int st_table_iter_init(st_table_t *table, st_table_iter_t *iter) {
 
     iter->table_version = table->version;
 
-    st_rbtree_node_t *n = st_rbtree_left_most(&table->elements);
+    st_rbtree_node_t *n = NULL;
+
+    if (init_key == NULL) {
+        n = st_rbtree_left_most(&table->elements);
+    }
+    else {
+        st_must(init_key->bytes != NULL, ST_ARG_INVALID);
+
+        st_table_element_t target = { .key = *init_key };
+        n = st_rbtree_search(&table->elements, &target.rbnode, expected_side);
+    }
+
     if (n == NULL) {
         iter->element = NULL;
     } else {

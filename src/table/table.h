@@ -97,7 +97,12 @@ int st_table_get_value(st_table_t *table, st_str_t key, st_str_t *value);
 // you can find next value in table, it will be used for iterating table.
 // the function is no locked, because user will copy or do other thing in his code
 // so lock the table first.
-int st_table_iter_init(st_table_t *table, st_table_iter_t *iter);
+//
+// if init_key is NULL then iterating from left-most in rbtree.
+int st_table_iter_init(st_table_t *table,
+                       st_table_iter_t *iter,
+                       st_str_t *init_key,
+                       int expected_side);
 
 // you can lock whole iterate, to avoid table change in iterate runtime.
 // or you must lock st_table_iter_next, that not guarantee iterate table correctness.
