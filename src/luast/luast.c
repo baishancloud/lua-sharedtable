@@ -3,10 +3,10 @@
 #include <lauxlib.h>
 #include <string.h>
 
-#include "sharetable/sharetable.h"
+#include "capi/capi.h"
 
 
-typedef struct st_lua_ud_s         st_lua_ud_t;
+typedef struct st_lua_ud_s    st_lua_ud_t;
 /**
  * userdata for each c share table.
  *
@@ -37,10 +37,10 @@ typedef union {
 static int
 st_lua_iter_gc(lua_State *L)
 {
-    st_sharetable_iter_t *iter = NULL;
+    st_capi_iter_t *iter = NULL;
     st_lua_get_ud_err_ret(L, iter, 1, ST_LUA_ITER_METATABLE);
 
-    int ret = st_sharetable_free_iterator(iter);
+    int ret = st_capi_free_iterator(iter);
     if (ret != ST_OK) {
         return luaL_error(L, "failed to remove table ref from iter: %d", ret);
     }
@@ -77,13 +77,13 @@ st_lua_table_len(lua_State *L)
 
     int len = INT_MAX;
     st_tvalue_t key = st_str_null;
-    st_sharetable_make_tvalue(key, len);
+    st_capi_make_tvalue(key, len);
 
-    int ret = st_sharetable_foreach(table,
-                                    &key,
-                                    ST_SIDE_LEFT_EQ,
-                                    st_lua_get_array_length_cb,
-                                    (void *)&key);
+    int ret = st_capi_foreach(table,
+                              &key,
+                              ST_SIDE_LEFT_EQ,
+                              st_lua_get_array_length_cb,
+                              (void *)&key);
     if (ret == ST_OK) {
         len = 0;
     }
@@ -101,11 +101,11 @@ static int
 st_lua_get_stack_value_info(lua_State *L,
                             int index,
                             st_lua_values_t *value,
-                            st_types_t *type)
+                            st_tvalue_t *carg)
 {
     st_must(L != NULL, ST_ARG_INVALID);
     st_must(value != NULL, ST_ARG_INVALID);
-    st_must(type != NULL, ST_ARG_INVALID);
+    st_must(carg != NULL, ST_ARG_INVALID);
     st_must(index >= 1, ST_ARG_INVALID);
 
     int iarg;
@@ -115,7 +115,7 @@ st_lua_get_stack_value_info(lua_State *L,
     switch (arg_type) {
     case LUA_TNIL:
     case LUA_TNONE:
-        *type = ST_TYPES_NIL;
+        carg->type = ST_TYPES_NIL;
 
         break;
     case LUA_TNUMBER:
@@ -123,28 +123,28 @@ st_lua_get_stack_value_info(lua_State *L,
         darg = luaL_checknumber(L, index);
 
         if (iarg == darg) {
-            *type = ST_TYPES_INTEGER;
             value->i_value = iarg;
+            st_capi_make_tvalue(*carg, value->i_value);
         }
         else {
-            *type = ST_TYPES_NUMBER;
             value->d_value = darg;
+            st_capi_make_tvalue(*carg, value->d_value);
         }
 
         break;
     case LUA_TBOOLEAN:
         value->b_value = (st_bool)lua_toboolean(L, index);
-        *type = ST_TYPES_BOOLEAN;
+        st_capi_make_tvalue(*carg, value->b_value);
 
         break;
     case LUA_TSTRING:
         value->s_value = (char *)luaL_checkstring(L, index);
-        *type = ST_TYPES_STRING;
+        *carg = st_capi_value_info(value->s_value);
 
         break;
     case LUA_TUSERDATA:
         st_lua_get_ud_err_ret(L, value->u_value, index, ST_LUA_TABLE_METATABLE);
-        *type = ST_TYPES_TABLE;
+        *carg = value->u_value->table;
 
         break;
     default:
@@ -208,19 +208,19 @@ st_lua_push_value_to_stack(lua_State *L, st_tvalue_t *tvalue)
 static int
 st_lua_get_key(lua_State *L, st_table_t *table, int index)
 {
-    st_types_t ktype;
+    st_tvalue_t carg;
     st_tvalue_t value;
     st_lua_values_t key;
 
-    int ret = st_lua_get_stack_value_info(L, index, &key, &ktype);
+    int ret = st_lua_get_stack_value_info(L, index, &key, &carg);
     if (ret != ST_OK) {
         derr("invalid key type for index: %d", ret);
 
         return ret;
     }
 
-    if (ktype != ST_TYPES_NIL) {
-        ret = st_sharetable_do_get(table, (void *)&key, ktype, &value);
+    if (carg.type != ST_TYPES_NIL) {
+        ret = st_capi_do_get(table, carg, &value);
 
         if (ret == ST_NOT_FOUND) {
             value.type = ST_TYPES_NIL;
@@ -243,7 +243,7 @@ st_lua_get_key(lua_State *L, st_table_t *table, int index)
     }
 
     if (value.type != ST_TYPES_NIL && !st_types_is_table(value.type)) {
-        st_assert(st_sharetable_free(&value) == ST_OK);
+        st_assert(st_capi_free(&value) == ST_OK);
     }
 
     return ret;
@@ -270,41 +270,33 @@ st_lua_table_index(lua_State *L)
 static int
 st_lua_set_remove(lua_State *L, st_table_t *table, int index)
 {
-    st_types_t ktype;
-    st_types_t vtype;
+    st_tvalue_t kcarg;
+    st_tvalue_t vcarg;
     st_lua_values_t key;
     st_lua_values_t value;
 
-    int ret = st_lua_get_stack_value_info(L, index, &key, &ktype);
-    if (ret != ST_OK || ktype == ST_TYPES_NIL) {
+    int ret = st_lua_get_stack_value_info(L, index, &key, &kcarg);
+    if (ret != ST_OK || kcarg.type == ST_TYPES_NIL) {
         derr("invalid key type for index: %d", ret);
 
         return luaL_argerror(L, index, "invalid key type");
     }
 
-    ret = st_lua_get_stack_value_info(L, index + 1, &value, &vtype);
+    ret = st_lua_get_stack_value_info(L, index + 1, &value, &vcarg);
     if (ret != ST_OK) {
         derr("failed to get value from stack: %d", ret);
 
         return luaL_argerror(L, index+1, "failed to get value from stack");
     }
 
-    if (vtype == ST_TYPES_NIL) {
+    if (vcarg.type == ST_TYPES_NIL) {
         /** remove */
-        ret = st_sharetable_do_remove_key(table, (void *)&key, ktype);
+        ret = st_capi_do_remove_key(table, kcarg);
         ret = (ret == ST_NOT_FOUND ? ST_OK : ret);
     }
     else {
         /** set */
-        void *val_to_set = (void *)&value;
-        if (vtype == ST_TYPES_TABLE) {
-            val_to_set = (void *)value.u_value->table.bytes;
-        }
-
-        ret = st_sharetable_do_add(table,
-                                   (void *)&key, ktype,
-                                   val_to_set, vtype,
-                                   1);
+        ret = st_capi_do_add(table, kcarg, vcarg, 1);
     }
 
     return ret;
@@ -355,7 +347,7 @@ st_lua_table_gc(lua_State *L)
     st_lua_ud_t *ud = luaL_checkudata(L, 1, ST_LUA_TABLE_METATABLE);
     st_assert(ud != NULL);
 
-    int ret = st_sharetable_free(&ud->table);
+    int ret = st_capi_free(&ud->table);
     st_assert(ret == ST_OK);
 
     ud->table = (st_tvalue_t)st_str_null;
@@ -367,7 +359,7 @@ st_lua_table_gc(lua_State *L)
 int
 st_lua_worker_init(lua_State *L)
 {
-    int ret = st_sharetable_worker_init();
+    int ret = st_capi_worker_init();
 
     lua_pushnumber(L, ret);
 
@@ -378,7 +370,7 @@ st_lua_worker_init(lua_State *L)
 int
 st_lua_destroy(lua_State *L)
 {
-    int ret = st_sharetable_destroy();
+    int ret = st_capi_destroy();
 
     lua_pushnumber(L, ret);
 
@@ -389,7 +381,7 @@ st_lua_destroy(lua_State *L)
 int
 st_lua_get(lua_State *L)
 {
-    st_sharetable_process_state_t *pstate = st_sharetable_get_process_state();
+    st_capi_process_t *pstate = st_capi_get_process_state();
     st_table_t *g_root = pstate->lib_state->g_root;
 
     int ret = st_lua_get_key(L, g_root, 1);
@@ -404,7 +396,7 @@ st_lua_get(lua_State *L)
 int
 st_lua_register(lua_State *L)
 {
-    st_sharetable_process_state_t *pstate = st_sharetable_get_process_state();
+    st_capi_process_t *pstate = st_capi_get_process_state();
     st_table_t *g_root = pstate->lib_state->g_root;
 
     int ret = st_lua_set_remove(L, g_root, 1);
@@ -416,13 +408,12 @@ st_lua_register(lua_State *L)
 }
 
 
-// TODO: lsl, add description for each err code to return ?
 int
 st_lua_new(lua_State *L)
 {
     st_tvalue_t table = st_str_null;
 
-    int ret = st_sharetable_new(&table);
+    int ret = st_capi_new(&table);
     if (ret != ST_OK) {
         char *err_msg = "failed to new table";
 
@@ -444,14 +435,14 @@ st_lua_new(lua_State *L)
 static int
 st_lua_common_iterator(lua_State *L, int is_ipairs)
 {
-    st_sharetable_iter_t *iter = NULL;
+    st_capi_iter_t *iter = NULL;
 
     st_lua_get_ud_err_ret(L, iter, 1, ST_LUA_ITER_METATABLE);
 
     st_tvalue_t key;
     st_tvalue_t value;
 
-    int ret = st_sharetable_next(iter, &key, &value);
+    int ret = st_capi_next(iter, &key, &value);
     if (ret == ST_TABLE_MODIFIED) {
         return luaL_error(L, "table modified during iterate: %d", ret);
     }
@@ -463,8 +454,8 @@ st_lua_common_iterator(lua_State *L, int is_ipairs)
     st_assert(ret == ST_OK);
 
     if (is_ipairs && key.type != ST_TYPES_INTEGER) {
-        st_assert(st_sharetable_free(&key));
-        st_assert(st_sharetable_free(&value));
+        st_assert(st_capi_free(&key));
+        st_assert(st_capi_free(&value));
 
         return 0;
     }
@@ -472,9 +463,9 @@ st_lua_common_iterator(lua_State *L, int is_ipairs)
     st_lua_push_value_to_stack(L, &key);
     st_lua_push_value_to_stack(L, &value);
 
-    st_sharetable_free(&key);
+    st_capi_free(&key);
     if (!st_types_is_table(value.type)) {
-        st_sharetable_free(&value);
+        st_capi_free(&value);
     }
 
     return 2;
@@ -506,14 +497,11 @@ st_lua_common_init_iter(lua_State *L,
 
     lua_pushcfunction(L, iter_func);
 
-    st_sharetable_iter_t *iter = lua_newuserdata(L, sizeof(*iter));
+    st_capi_iter_t *iter = lua_newuserdata(L, sizeof(*iter));
     luaL_getmetatable(L, ST_LUA_ITER_METATABLE);
     lua_setmetatable(L, -2);
 
-    int ret = st_sharetable_init_iterator(&ud->table,
-                                          iter,
-                                          init_key,
-                                          expected_side);
+    int ret = st_capi_init_iterator(&ud->table, iter, init_key, expected_side);
     if (ret != ST_OK) {
         return luaL_error(L, "failed to init iterator: %d", ret);
     }
@@ -528,7 +516,7 @@ st_lua_ipairs(lua_State *L)
 {
     int start = 1;
     st_tvalue_t init_key = st_str_null;
-    st_sharetable_make_tvalue(init_key, start);
+    st_capi_make_tvalue(init_key, start);
 
     return st_lua_common_init_iter(L,
                                    &init_key,
@@ -547,7 +535,7 @@ st_lua_pairs(lua_State *L)
 int
 st_lua_collect_garbage(lua_State *L)
 {
-    st_sharetable_process_state_t *pstate = st_sharetable_get_process_state();
+    st_capi_process_t *pstate = st_capi_get_process_state();
 
     int ret = st_gc_run(&pstate->lib_state->table_pool.gc);
     if (ret != ST_OK && ret != ST_NO_GC_DATA) {
@@ -563,25 +551,25 @@ st_lua_collect_garbage(lua_State *L)
 int
 st_lua_proc_crash_detection(lua_State *L)
 {
-    st_types_t num_type;
+    st_tvalue_t num;
     st_lua_values_t value;
 
-    int ret = st_lua_get_stack_value_info(L, 1, &value, &num_type);
+    int ret = st_lua_get_stack_value_info(L, 1, &value, &num);
     if (ret != ST_OK) {
         return luaL_error(L, "failed to get num from stack: %d", ret);
     }
 
-    if (num_type == ST_TYPES_NIL) {
+    if (num.type == ST_TYPES_NIL) {
         value.i_value = 0;
-        num_type = ST_TYPES_INTEGER;
+        num.type = ST_TYPES_INTEGER;
     }
 
-    if (num_type != ST_TYPES_INTEGER) {
-        return luaL_error(L, "invalid max number type: %d, %d", ret, num_type);
+    if (num.type != ST_TYPES_INTEGER) {
+        return luaL_error(L, "invalid max number type: %d, %d", ret, num.type);
     }
 
     int recycled = 0;
-    ret = st_sharetable_recycle_roots(value.i_value, &recycled);
+    ret = st_capi_recycle_roots(value.i_value, &recycled);
     if (ret != ST_OK) {
         derr("failed to run proc crash detection: %d", ret);
     }
@@ -645,11 +633,11 @@ static const luaL_Reg st_lua_module_methods[] = {
 int
 luaopen_libluast(lua_State *L)
 {
-    /** register metatable for sharetable ud in lua */
+    /** register metatable for capi ud in lua */
     luaL_newmetatable(L, ST_LUA_TABLE_METATABLE);
     luaL_register(L, NULL, st_lua_table_metamethods);
 
-    /** register metatable for sharetable iterator in lua */
+    /** register metatable for capi iterator in lua */
     luaL_newmetatable(L, ST_LUA_ITER_METATABLE);
     luaL_register(L, NULL, st_lua_iter_metamethods);
 
@@ -657,7 +645,7 @@ luaopen_libluast(lua_State *L)
     lua_newtable(L);
     luaL_register(L, ST_LUA_MODULE_NAME, st_lua_module_methods);
 
-    if (st_sharetable_init() != ST_OK) {
+    if (st_capi_init() != ST_OK) {
         /**
          * this function is called when loading library,
          * so it should only be called once in master process.

@@ -2,7 +2,7 @@ src          = luast.c
 target       = luast.a
 target_dylib = libluast.so
 libs         = pthread rt lua
-deps         = sharetable pagepool rbtree array region slab bitmap robustlock gc table str
+deps         = capi pagepool rbtree array region slab bitmap robustlock gc table str
 
 test_exec    = test_luast
 
