@@ -4,7 +4,7 @@
 
 #include "unittest/unittest.h"
 
-#define TEST_LUAST_PATH "test_luast.lua"
+#define TEST_LUAST_PATH "test_luaapi.lua"
 #define LUA_LIB_PATH "/usr/local/lib/lua/5.1/?.so"
 
 st_test(luast, lua_interfaces)
