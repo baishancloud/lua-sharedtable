@@ -2,7 +2,18 @@ src          = luaapi.c
 target       = luaapi.a
 target_dylib = libluast.so
 libs         = pthread rt lua
-deps         = capi pagepool rbtree array region slab bitmap robustlock gc table str
+deps         = capi       \
+			   pagepool   \
+			   rbtree     \
+			   array      \
+			   region     \
+			   slab       \
+			   bitmap     \
+			   robustlock \
+			   gc         \
+			   table      \
+			   str        \
+			   util
 
 test_exec    = test_luaapi
 
