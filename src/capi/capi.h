@@ -54,11 +54,13 @@ typedef enum st_capi_init_state_e {
 
 /** worker process state */
 struct st_capi_process_s {
-    int        inited;
+    int             inited;
 
-    pid_t      pid;
-    st_table_t *root;
-    st_capi_t  *lib_state;
+    pid_t           pid;
+    st_table_t      *root;
+    st_capi_t       *lib_state;
+    st_list_t       node;
+    pthread_mutex_t alive;
 };
 
 /** library state */
@@ -70,8 +72,10 @@ struct st_capi_s {
     void *base;
     ssize_t len;
 
+    st_list_t       p_roots;
+    pthread_mutex_t lock;
+
     st_table_t *g_root;
-    st_table_t *p_roots;
 
     st_table_pool_t table_pool;
 

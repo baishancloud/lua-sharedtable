@@ -12,7 +12,7 @@
 #define ST_CAPI_TEST_PROCS_CNT 10
 
 
-typedef int (*st_capi_do_test) (st_capi_process_t *pstate);
+typedef int (*st_capi_do_test) (void);
 
 
 st_test(st_capi, make_parse_tvalue)
@@ -169,18 +169,19 @@ st_test(st_capi, make_parse_tvalue)
 st_test(st_capi, module_init_destroy)
 {
     st_capi_process_t *pstate = st_capi_get_process_state();
-    st_ut_eq(0, pstate->inited, "process state should not be inited");
+    st_ut_eq(NULL, pstate, "process state should not be inited");
 
     /** check st_capi_init */
     int ret = st_capi_init();
     st_ut_eq(ST_OK, ret, "failed to init module");
+    pstate = st_capi_get_process_state();
 
     /** check process state */
     st_capi_t *lstate = pstate->lib_state;
     st_ut_ne(NULL, lstate, "lib state must not be NULL");
     st_ut_eq(1, pstate->inited, "process state inited not right");
     st_ut_eq(getpid(), pstate->pid, "pid in process state not right");
-    st_ut_eq(lstate->p_roots, pstate->root, "root in process state not right");
+    st_ut_eq(&pstate->node, st_list_first(&lstate->p_roots), "proot not set");
 
     /** check library state */
     uintptr_t meta_size = (uintptr_t)lstate->data - (uintptr_t)lstate->base;
@@ -189,13 +190,12 @@ st_test(st_capi, module_init_destroy)
              "len not right");
     st_ut_eq(lstate->base, lstate, "lib state addr must be the same as base");
     st_ut_ne(NULL, lstate->g_root, "g_root must not be NULL");
-    st_ut_ne(NULL, lstate->p_roots, "p_roots must not be NULL");
-    st_ut_eq(0, lstate->p_roots->element_cnt, "p_roots must be empty");
+    st_ut_eq(1, st_list_is_inited(&lstate->p_roots), "p_roots not inited");
     st_ut_eq(ST_CAPI_INIT_DONE, lstate->init_state, "state not right");
-
 
     /** check st_capi_destroy */
     for (int s = ST_CAPI_INIT_DONE; s >= ST_CAPI_INIT_NONE; s--) {
+        pstate = st_capi_get_process_state();
         int fd = pstate->lib_state->shm_fd;
 
         pstate->inited = s;
@@ -204,10 +204,7 @@ st_test(st_capi, module_init_destroy)
         st_ut_eq(ST_OK, ret, "failed to destroy module");
 
         /** check process state */
-        st_ut_eq(0, pstate->inited, "failed to clear process state inited");
-        st_ut_eq(0, pstate->pid, "failed to clear process state pid");
-        st_ut_eq(NULL, pstate->root, "failed to clear process state root");
-        st_ut_eq(NULL, pstate->lib_state, "failed to clear lib state");
+        st_ut_eq(NULL, st_capi_get_process_state(), "process state not NULL");
 
         /** check share memory fd */
         struct stat buf;
@@ -219,6 +216,7 @@ st_test(st_capi, module_init_destroy)
         st_ut_eq(ENOENT, errno, "shm fd not closed");
 
         ret = st_capi_init();
+        st_ut_eq(ret, ST_OK, "failed to init module");
     }
 
     ret = st_capi_destroy();
@@ -278,7 +276,7 @@ st_capi_test_fork_wrapper(st_capi_do_test process_cb)
             int ret = st_capi_worker_init();
             st_ut_eq(ST_OK, ret, "failed to init module worker: %d", ret);
 
-            ret = process_cb(pstate);
+            ret = process_cb();
 
             exit(ret);
         }
@@ -295,9 +293,12 @@ st_capi_test_fork_wrapper(st_capi_do_test process_cb)
         }
     }
 
-    st_ut_eq(ST_CAPI_TEST_PROCS_CNT,
-             pstate->lib_state->p_roots->element_cnt,
-             "lib state proots set element cnt is not right");
+    int cnt = 0;
+    st_list_t *node;
+    st_list_for_each(node, &pstate->lib_state->p_roots) {
+        cnt ++;
+    }
+    st_ut_eq(ST_CAPI_TEST_PROCS_CNT + 1, cnt, "proots count not right");
 
     st_ut_eq(1, all_passed, "worker process failed");
 
@@ -710,11 +711,6 @@ st_test(st_capi, set_add_get_remove_key)
         return ST_OK;
     }
 
-    /**
-      * st_ut_eq(ST_OK,
-      *          st_capi_test_fork_wrapper(st_capi_test_set_get_rm_key),
-      *          "callback failed");
-      */
     st_capi_test_set_get_rm_key(st_capi_get_process_state());
 
     st_capi_tear_down_ut();
@@ -726,34 +722,35 @@ st_test(st_capi, worker_init)
     st_capi_prepare_ut();
 
     int
-    st_capi_test_worker_init_cb(st_capi_process_t *pstate)
+    st_capi_test_worker_init_cb(void)
     {
-        st_capi_t *lstate = pstate->lib_state;
-
-        st_tvalue_t key;
-        st_tvalue_t value;
-        pid_t pid = getpid();
-
-        int ret = st_capi_make_tvalue(key, pid);
-        st_ut_eq(ST_OK, ret, "failed to make tvalue");
-        ret = st_table_get_value(lstate->p_roots, key, &value);
+        pid_t pid                 = getpid();
+        st_capi_process_t *pstate = st_capi_get_process_state();
+        st_capi_t *lstate         = pstate->lib_state;
 
         /** check my proot in root set */
-        st_ut_eq(ST_OK, ret, "failed to get proot from root set");
-        st_ut_eq(ST_TYPES_TABLE, value.type, "proot is not table type");
-
-        st_table_t *root = st_table_get_table_addr_from_value(value);
+        int found = 0;
+        st_capi_process_t *entry;
+        st_list_for_each_entry(entry, &lstate->p_roots, node) {
+            if (entry == pstate) {
+                found = 1;
+                break;
+            }
+        }
+        st_ut_eq(1, found, "proot not found");
 
         /** check process state */
         st_ut_eq(pid, pstate->pid, "wrong pid in pstate");
-        st_ut_eq(root, pstate->root, "root not right in pstate");
         st_ut_eq(1, pstate->inited, "wrong inited in pstate");
-        st_ut_eq(lstate, pstate->lib_state, "wrong lib state in pstate");
+        st_ut_ne(NULL, pstate->lib_state, "lib state in pstate is NULL");
 
         /** check proot in gc root set */
-        ret = st_gc_add_root(&pstate->lib_state->table_pool.gc,
-                             &root->gc_head);
+        int ret = st_gc_add_root(&pstate->lib_state->table_pool.gc,
+                                 &pstate->root->gc_head);
         st_ut_eq(ST_EXISTED, ret, "failed to put proot into gc root set");
+
+        st_ut_bug(st_robustlock_trylock(&pstate->alive),
+                  "failed to lock alive in process state");
 
         return ST_OK;
     }
@@ -774,8 +771,9 @@ st_test(st_capi, new)
     int64_t tbl_cnt = pstate->lib_state->table_pool.table_cnt;
 
     int
-    st_capi_test_new_cb(st_capi_process_t *pstate)
+    st_capi_test_new_cb(void)
     {
+        st_capi_process_t *pstate = st_capi_get_process_state();
         int64_t root_tbl_cnt = pstate->root->element_cnt;
         st_ut_eq(0, root_tbl_cnt, "proot element_cnt is not 0");
 
@@ -836,8 +834,9 @@ st_test(st_capi, free)
      * case 2: remove table from get
      */
     int
-    st_capi_test_free_cb(st_capi_process_t *pstate)
+    st_capi_test_free_cb(void)
     {
+        st_capi_process_t *pstate = st_capi_get_process_state();
         int elem_cnt = pstate->root->element_cnt;
 
         /** create parent table and proot has its reference */
@@ -925,8 +924,9 @@ st_test(st_capi, iterator)
     st_capi_prepare_ut();
 
     int
-    st_capi_test_iterator_cb(st_capi_process_t *pstate)
+    st_capi_test_iterator_cb(void)
     {
+        st_capi_process_t *pstate = st_capi_get_process_state();
         st_tvalue_t tbl_val = st_str_null;
         int ret = st_capi_new(&tbl_val);
         st_ut_eq(ST_OK, ret, "failed to new table: %d", ret);

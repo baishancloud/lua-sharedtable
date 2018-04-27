@@ -48,13 +48,13 @@
 /**
  * used to store info used by worker process regularly
  */
-static st_capi_process_t process_state = st_capi_process_empty;
+static st_capi_process_t *process_state;
 
 
 st_capi_process_t *
 st_capi_get_process_state(void)
 {
-    return &process_state;
+    return process_state;
 }
 
 
@@ -124,7 +124,14 @@ st_capi_remove_gc_root(st_capi_t *state, st_table_t *table)
         return ret;
     }
 
-    return st_gc_remove_root(&state->table_pool.gc, &table->gc_head);
+    ret = st_gc_remove_root(&state->table_pool.gc, &table->gc_head);
+    if (ret != ST_OK) {
+        derr("failed to remove proot from gc: %d", ret);
+
+        return ret;
+    }
+
+    return st_table_free(table);
 }
 
 
@@ -184,100 +191,70 @@ st_capi_foreach(st_table_t *table,
 }
 
 
+/** called only by master process */
 static int
-st_capi_remove_gc_root_cb(const st_tvalue_t *key,
-                          st_tvalue_t *value,
-                          void *roots)
+st_capi_do_recycle_roots(int max_num, int recycle_self, int *recycle_num)
 {
-    st_assert(ST_TYPES_INTEGER == key->type);
+    st_must(max_num >= 0, ST_ARG_INVALID);
 
-    st_table_t *proot = st_table_get_table_addr_from_value(*value);
-    pid_t pid = *((pid_t *)key->bytes);
+    st_capi_t *lib_state      = process_state->lib_state;
+    st_capi_process_t *next   = NULL;
+    st_capi_process_t *pstate = NULL;
 
-    errno = 0;
-    int ret = kill(pid, 0);
-    if (ret != -1 || errno != ESRCH) {
-        return ST_OK;
+    st_robustlock_lock(&lib_state->lock);
+
+    int num = 0;
+    int ret = ST_OK;
+    st_list_for_each_entry_safe(pstate, next, &lib_state->p_roots, node) {
+        if (pstate->pid == process_state->pid) {
+            pstate = (recycle_self ? pstate : NULL);
+        }
+        else {
+            ret = st_robustlock_trylock(&pstate->alive);
+            pstate = (ret == ST_OK ? pstate : NULL);
+        }
+
+        if (pstate) {
+            st_robustlock_unlock(&pstate->alive);
+            st_robustlock_destroy(&pstate->alive);
+            st_list_remove(&pstate->node);
+
+            ret = st_capi_remove_gc_root(pstate->lib_state, pstate->root);
+            st_assert_ok(ret, "failed to remove gc root: %d", pstate->pid);
+
+            ret = st_slab_obj_free(&lib_state->table_pool.slab_pool, pstate);
+            st_assert_ok(ret, "failed to free process state to slab");
+
+            num++;
+            if (max_num != 0 && num == max_num) {
+                break;
+            }
+        }
     }
 
-    ret = st_capi_remove_gc_root(process_state.lib_state, proot);
-    if (ret != ST_OK) {
-        derr("failed to remove gc root: %d", ret);
+    *recycle_num = num;
+    st_robustlock_unlock(&lib_state->lock);
 
-        return ret;
-    }
-
-    pid_t *root_array = (pid_t *)roots;
-    int index         = root_array[0]--;
-    root_array[index] = pid;
-
-    return (root_array[0] == 0 ? ST_ITER_STOP : ST_OK);
+    return ST_OK;
 }
 
 
 int
 st_capi_recycle_roots(int max_num, int *recycle_num)
 {
-    st_must(max_num >= 0, ST_ARG_INVALID);
-
-    st_capi_t *lib_state = process_state.lib_state;
-
-    if (max_num == 0) {
-        max_num = lib_state->p_roots->element_cnt;
-    }
-
-    pid_t *roots = (pid_t *)calloc(max_num + 1, sizeof(*roots));
-    if (roots == NULL) {
-        return ST_OUT_OF_MEMORY;
-    }
-    roots[0] = max_num;
-
-    int ret = st_capi_foreach(lib_state->p_roots,
-                              NULL,
-                              0,
-                              st_capi_remove_gc_root_cb,
-                              (void *)roots);
-
-    if (ret == ST_ITER_STOP) {
-        ret = ST_OK;
-    }
-
-    if (ret != ST_OK) {
-        derr("failed to recycle roots: %d", ret);
-        goto quit;
-    }
-
-    *recycle_num = 0;
-    for (int cnt = 1; cnt <= max_num; cnt++) {
-        pid_t pid = roots[cnt];
-        if (pid == 0) {
-            continue;
-        }
-
-        int ok = st_capi_remove_key(lib_state->p_roots, pid);
-        if (ok != ST_OK) {
-            ret = (ret == ST_OK ? ok : ret);
-            derr("failed to recycle root: %d, %d", pid, ok);
-        }
-
-        (*recycle_num)++;
-    }
-
-quit:
-    st_free(roots);
-
-    return ret;
+    return st_capi_do_recycle_roots(max_num, 0, recycle_num);
 }
 
 
 int
 st_capi_destroy(void)
 {
-    st_capi_validate_lib_state(process_state.lib_state);
+    // TODO: lsl, remove it
+    //st_capi_validate_lib_state(process_state.lib_state);
 
     int ret = ST_OK;
     int recycled = 0;
-    st_capi_t *lib_state = process_state.lib_state;
+    st_capi_t *lib_state = process_state->lib_state;
     st_table_pool_t *table_pool = &lib_state->table_pool;
 
     while (lib_state != NULL && lib_state->init_state) {
@@ -286,24 +263,16 @@ st_capi_destroy(void)
         switch (lib_state->init_state) {
             case ST_CAPI_INIT_PROOT:
                 /** remove each items in p_roots from root set of gc */
-                ret = st_capi_recycle_roots(0, &recycled);
-                if (ret != ST_OK) {
-                    break;
-                }
+                st_capi_do_recycle_roots(0, 1, &recycled);
+                dd("recycle %d processes", recycled);
 
-                dd("recycle %d processes", recycle_num);
-                /** release p_roots */
-                ret = st_table_free(lib_state->p_roots);
-                lib_state->p_roots = NULL;
+                st_robustlock_destroy(&lib_state->lock);
 
                 break;
             case ST_CAPI_INIT_GROOT:
                 ret = st_capi_remove_gc_root(lib_state, lib_state->g_root);
-                if (ret != ST_OK) {
-                    break;
-                }
+                st_assert_ok(ret, "failed to remove g_root");
 
-                ret = st_table_free(lib_state->g_root);
                 lib_state->g_root = NULL;
 
                 break;
@@ -328,8 +297,8 @@ st_capi_destroy(void)
                                             lib_state->base,
                                             lib_state->len);
                 if (ret == ST_OK) {
-                    lib_state = NULL;
-                    process_state = (st_capi_process_t)st_capi_process_empty;
+                    lib_state     = NULL;
+                    process_state = NULL;
                 }
 
                 break;
@@ -377,19 +346,88 @@ st_capi_master_init_roots(st_capi_t *state)
         return ret;
     }
 
-    state->g_root     = root;
+    state->g_root = root;
     state->init_state = ST_CAPI_INIT_GROOT;
 
-    ret = st_table_new(&state->table_pool, &root);
+    st_list_init(&state->p_roots);
+    ret = st_robustlock_init(&state->lock);
     if (ret != ST_OK) {
-        derr("failed to alloc p_roots: %d", ret);
+        derr("failed to init lib state lock: %d", ret);
+
         return ret;
     }
 
-    state->p_roots    = root;
     state->init_state = ST_CAPI_INIT_PROOT;
 
     return ST_OK;
+}
+
+
+static int
+st_capi_init_process_state(st_capi_process_t **pstate)
+{
+    st_capi_t *lib_state        = (*pstate)->lib_state;
+    st_table_pool_t *table_pool = &lib_state->table_pool;
+    st_slab_pool_t *slab_pool   = &lib_state->table_pool.slab_pool;
+
+    st_capi_process_t *new = NULL;
+    int ret = st_slab_obj_alloc(slab_pool, sizeof(*new), (void **)&new);
+    if (ret != ST_OK) {
+        derr("failed to alloc process state from slab: %d, %d", getpid(), ret);
+
+        return ret;
+    }
+
+    new->pid       = getpid();
+    new->root      = NULL;
+    new->lib_state = (*pstate)->lib_state;
+
+    st_list_init(&new->node);
+
+    ret = st_table_new(&lib_state->table_pool, &new->root);
+    if (ret != ST_OK) {
+        derr("failed to new table for process state: %d, %d", new->pid, ret);
+
+        goto err_quit;
+    }
+
+    ret = st_gc_add_root(&table_pool->gc, &new->root->gc_head);
+    if (ret != ST_OK) {
+        derr("failed to add proot to gc: %d, %d", new->pid, ret);
+
+        goto err_quit;
+    }
+
+    /** alive lock used for process crashing detection */
+    ret = st_robustlock_init(&new->alive);
+    if (ret != ST_OK) {
+        derr("failed to init process state alive lock: %d, %d", new->pid, ret);
+
+        goto err_quit;
+    }
+    st_robustlock_lock(&new->alive);
+
+    st_robustlock_lock(&lib_state->lock);
+    st_list_insert_last(&lib_state->p_roots, &new->node);
+    st_robustlock_unlock(&lib_state->lock);
+
+    new->inited = 1;
+    *pstate = new;
+
+    return ST_OK;
+
+err_quit:
+    if (new->root != NULL) {
+        st_gc_remove_root(&table_pool->gc, &new->root->gc_head);
+
+        st_assert_ok(st_table_free(new->root),
+                     "failed to free process root: %d", new->pid);
+    }
+
+    st_assert_ok(st_slab_obj_free(slab_pool, new),
+                 "failed to free process state to slab: %d", getpid());
+
+    return ret;
 }
 
 
@@ -399,12 +437,12 @@ st_capi_master_init_roots(st_capi_t *state)
 int
 st_capi_init(void)
 {
-    st_must(process_state.lib_state == NULL, ST_INITTWICE);
+    st_capi_process_t pstate;
 
     int shm_fd = -1;
     void *base = NULL;
 
-    ssize_t page_size  = st_page_size();
+    ssize_t page_size = st_page_size();
     ssize_t meta_size = st_align(sizeof(st_capi_t), page_size);
     ssize_t data_size = st_align(ST_REGION_CNT * ST_REGION_SIZE, page_size);
 
@@ -415,8 +453,9 @@ st_capi_init(void)
         return ret;
     }
 
-    process_state.lib_state = (st_capi_t *)base;
-    st_capi_t *state = process_state.lib_state;
+    process_state    = &pstate;
+    pstate.lib_state = (st_capi_t *)base;
+    st_capi_t *state = pstate.lib_state;
 
     memset(state, 0, sizeof(*state));
 
@@ -470,12 +509,14 @@ st_capi_init(void)
 
         goto err_quit;
     }
-    state->init_state = ST_CAPI_INIT_DONE;
 
-    process_state.pid       = getpid();
-    process_state.root      = state->p_roots;
-    process_state.lib_state = state;
-    process_state.inited    = 1;
+    ret = st_capi_init_process_state(&process_state);
+    if (ret != ST_OK) {
+        derr("failed to init process state: %d", ret);
+
+        goto err_quit;
+    }
+    process_state->lib_state->init_state = ST_CAPI_INIT_DONE;
 
     return ST_OK;
 
@@ -536,49 +577,10 @@ st_capi_handle_table_ref(void *addr_as_key, st_table_t *table)
 
     uintptr_t key = (uintptr_t)addr_as_key;
     if (table != NULL) {
-        return st_capi_add(process_state.root, key, table);
+        return st_capi_add(process_state->root, key, table);
     }
 
-    return st_capi_remove_key(process_state.root, key);
-}
-
-
-static int
-st_capi_do_new(st_table_t **ret_tbl, void *addr_as_key)
-{
-    st_capi_validate_pstate(&process_state);
-    st_must(ret_tbl != NULL, ST_ARG_INVALID);
-
-    st_table_t *table = NULL;
-
-    int ret = st_table_new(&process_state.lib_state->table_pool, &table);
-    if (ret != ST_OK) {
-        derr("failed to create table: %d", ret);
-
-        return ret;
-    }
-
-    /**
-     * use pid as key to add proot in lib_state.
-     * use addr as key to add table in proot.
-     */
-    if (addr_as_key != NULL) {
-        ret = st_capi_handle_table_ref(addr_as_key, table);
-    }
-    else {
-        ret = st_capi_set(process_state.root, process_state.pid, table);
-    }
-
-    if (ret != ST_OK) {
-        derr("failed to set table: %d", ret);
-
-        st_table_free(table);
-        return ret;
-    }
-
-    *ret_tbl = table;
-
-    return ST_OK;
+    return st_capi_remove_key(process_state->root, key);
 }
 
 
@@ -588,69 +590,18 @@ st_capi_worker_init(void)
     /**
      * for now, process_state is the same as in parent.
      */
-    st_capi_validate_pstate(&process_state);
+    st_capi_validate_pstate(process_state);
 
-    int ret = ST_OK;
-
-    /** allocate p_root, add it to p_roots and root set of gc */
-    st_tvalue_t key;
-    st_tvalue_t val;
-
-    st_table_t *root  = NULL;
-    process_state.pid = getpid();
-
-    st_capi_make_tvalue(key, process_state.pid);
-
-    ret = st_table_get_value(process_state.lib_state->p_roots, key, &val);
-    if (ret == ST_OK) {
-        root = st_table_get_table_addr_from_value(val);
-
-    }
-    else {
-        if (ret != ST_NOT_FOUND) {
-            derr("failed to get proot: %d, pid: %d", ret, process_state.pid);
-
-            return ret;
-        }
-
-        /**
-         * notice:
-         *   here we add root table of a worker process into proot set which
-         *   is logically owned by master process.
-         *
-         *   for now, process_state is the same as in master process,
-         *   so process_state->root refers to proot set.
-         */
-        ret = st_capi_do_new(&root, NULL);
-        if (ret != ST_OK) {
-            derr("failed to new process root table: %d, pid: %d",
-                 ret,
-                 process_state.pid);
-
-            return ret;
-        }
-    }
-
-    ret = st_gc_add_root(&process_state.lib_state->table_pool.gc,
-                         &root->gc_head);
-    if (ret != ST_OK && ret != ST_EXISTED) {
-        derr("failed to add root to gc: %d", ret);
-
-        return ret;
-    }
-
-    /** set process state */
-    process_state.root   = root;
-    process_state.inited = 1;
-
-    return ST_OK;
+    return st_capi_init_process_state(&process_state);
 }
+
 
 int
 st_capi_new(st_tvalue_t *ret_val)
 {
     st_must(ret_val != NULL, ST_ARG_INVALID);
 
+    st_table_t *table = NULL;
     st_tvalue_t tvalue = st_str_wrap_common(NULL, ST_TYPES_TABLE, 0);
     int ret = st_str_init(&tvalue, sizeof(st_table_t *));
     if (ret != ST_OK) {
@@ -659,19 +610,33 @@ st_capi_new(st_tvalue_t *ret_val)
         return ret;
     }
 
-    st_table_t *table = NULL;
-    ret = st_capi_do_new(&table, tvalue.bytes);
+    ret = st_table_new(&process_state->lib_state->table_pool, &table);
     if (ret != ST_OK) {
-        derr("failed to do_new table: %d", ret);
+        derr("failed to create table: %d", ret);
 
-        st_free(tvalue.bytes);
-        return ret;
+        goto err_quit;
+    }
+
+    /** use addr as key to add table in proot. */
+    ret = st_capi_handle_table_ref((void *)tvalue.bytes, table);
+    if (ret != ST_OK) {
+        derr("failed to set table: %d", ret);
+
+        goto err_quit;
     }
 
     *ret_val = tvalue;
     *((st_table_t **)ret_val->bytes) = table;
 
     return ST_OK;
+
+err_quit:
+    if (table != NULL) {
+        st_assert_ok(st_table_free(table), "failed to free table");
+    }
+    st_free(tvalue.bytes);
+
+    return ret;
 }
 
 
