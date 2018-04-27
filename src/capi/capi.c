@@ -15,34 +15,8 @@
 #include "capi.h"
 
 
-#define st_capi_validate_lib_state(lib_state) do {                            \
-    st_must((lib_state) != NULL, ST_ARG_INVALID);                             \
-    st_must((lib_state)->init_state >= ST_CAPI_INIT_NONE, ST_ARG_INVALID);    \
-    st_must((lib_state)->init_state <= ST_CAPI_INIT_DONE, ST_ARG_INVALID);    \
-} while (0)
-
-#define st_capi_validate_pstate(pstate) do {                                   \
-    st_typeof(pstate) _pstate = pstate;                                        \
-                                                                               \
-    st_must(_pstate != NULL, ST_UNINITED);                                     \
-    st_must(_pstate->inited == 1, ST_UNINITED);                                \
-    st_must(_pstate->pid != 0, ST_UNINITED);                                   \
-    st_must(_pstate->root != NULL, ST_UNINITED);                               \
-                                                                               \
-    st_must(_pstate->lib_state != NULL, ST_UNINITED);                          \
-    st_must(_pstate->lib_state->init_state == ST_CAPI_INIT_DONE, ST_UNINITED); \
-} while (0)
-
-
 /** by default, run gc periodically */
 #define ST_CAPI_GC_PERIODICALLY    1
-
-#define st_capi_process_empty {    \
-    .pid       = 0,                \
-    .root      = NULL,             \
-    .inited    = 0,                \
-    .lib_state = NULL,             \
-}
 
 
 /**
@@ -249,12 +223,16 @@ st_capi_recycle_roots(int max_num, int *recycle_num)
 int
 st_capi_destroy(void)
 {
-    // TODO: lsl, remove it
-    //st_capi_validate_lib_state(process_state.lib_state);
+    st_must(process_state != NULL, ST_UNINITED);
+    st_must(process_state->lib_state != NULL, ST_UNINITED);
+
+    st_capi_t *lib_state = process_state->lib_state;
+
+    st_must(lib_state->init_state >= ST_CAPI_INIT_NONE, ST_STATE_INVALID);
+    st_must(lib_state->init_state >= ST_CAPI_INIT_DONE, ST_STATE_INVALID);
 
     int ret = ST_OK;
     int recycled = 0;
-    st_capi_t *lib_state = process_state->lib_state;
     st_table_pool_t *table_pool = &lib_state->table_pool;
 
     while (lib_state != NULL && lib_state->init_state) {
@@ -529,24 +507,24 @@ err_quit:
 
 int
 st_capi_do_add(st_table_t *table,
-               st_tvalue_t kinfo,
-               st_tvalue_t vinfo,
+               st_tvalue_t k_type_addr,
+               st_tvalue_t v_type_addr,
                int force)
 {
     st_must(table != NULL, ST_ARG_INVALID);
-    st_must(kinfo.type != ST_TYPES_TABLE, ST_ARG_INVALID);
+    st_must(k_type_addr.type != ST_TYPES_TABLE, ST_ARG_INVALID);
 
     st_tvalue_t key;
     st_tvalue_t value;
 
-    int ret = st_capi_init_tvalue(&key, kinfo);
+    int ret = st_capi_init_tvalue(&key, k_type_addr);
     if (ret != ST_OK) {
         derr("failed to init key for set: %d", ret);
 
         return ret;
     }
 
-    ret = st_capi_init_tvalue(&value, vinfo);
+    ret = st_capi_init_tvalue(&value, v_type_addr);
     if (ret != ST_OK) {
         derr("failed to init value for set %d", ret);
 
@@ -570,6 +548,7 @@ st_capi_do_add(st_table_t *table,
 }
 
 
+/** add or remove table reference in proot */
 static int
 st_capi_handle_table_ref(void *addr_as_key, st_table_t *table)
 {
@@ -590,7 +569,9 @@ st_capi_worker_init(void)
     /**
      * for now, process_state is the same as in parent.
      */
-    st_capi_validate_pstate(process_state);
+    st_must(process_state != NULL, ST_UNINITED);
+    st_must(process_state->lib_state != NULL, ST_UNINITED);
+    st_must(process_state->lib_state->init_state == ST_CAPI_INIT_DONE, ST_UNINITED);
 
     return st_capi_init_process_state(&process_state);
 }
@@ -702,17 +683,17 @@ err_quit:
 
 
 int
-st_capi_do_get(st_table_t *table, st_tvalue_t kinfo, st_tvalue_t *ret_val)
+st_capi_do_get(st_table_t *table, st_tvalue_t k_type_addr, st_tvalue_t *ret_val)
 {
     st_must(table != NULL, ST_ARG_INVALID);
     st_must(ret_val != NULL, ST_ARG_INVALID);
-    st_must(kinfo.bytes != NULL, ST_ARG_INVALID);
-    st_must(kinfo.type != ST_TYPES_TABLE, ST_ARG_INVALID);
+    st_must(k_type_addr.bytes != NULL, ST_ARG_INVALID);
+    st_must(k_type_addr.type != ST_TYPES_TABLE, ST_ARG_INVALID);
 
     st_robustlock_lock(&table->lock);
 
     st_tvalue_t key;
-    int ret = st_capi_init_tvalue(&key, kinfo);
+    int ret = st_capi_init_tvalue(&key, k_type_addr);
     if (ret != ST_OK) {
         derr("failed to init tvalue of key: %d", ret);
 
@@ -737,14 +718,14 @@ quit:
 
 
 int
-st_capi_do_remove_key(st_table_t *table, st_tvalue_t kinfo)
+st_capi_do_remove_key(st_table_t *table, st_tvalue_t k_type_addr)
 {
     st_must(table != NULL, ST_ARG_INVALID);
-    st_must(kinfo.bytes != NULL, ST_ARG_INVALID);
-    st_must(kinfo.type != ST_TYPES_TABLE, ST_ARG_INVALID);
+    st_must(k_type_addr.bytes != NULL, ST_ARG_INVALID);
+    st_must(k_type_addr.type != ST_TYPES_TABLE, ST_ARG_INVALID);
 
     st_tvalue_t key;
-    int ret = st_capi_init_tvalue(&key, kinfo);
+    int ret = st_capi_init_tvalue(&key, k_type_addr);
     if (ret != ST_OK) {
         derr("failed to init tvalue for key: %d", ret);
 

@@ -92,11 +92,11 @@ int st_capi_destroy(void);
 
 int st_capi_worker_init(void);
 
-#define st_capi_value_info(key)    \
-    (st_tvalue_t)st_str_wrap_common(&(key), st_capi_get_type((key)), 0)
+#define st_capi_value_type_addr(key) \
+    (st_tvalue_t)st_str_wrap_common(&(key), st_capi_get_type(key), 0)
 
-#define st_capi_make_tvalue(tvalue, cvalue)    \
-    st_capi_init_tvalue(&(tvalue), st_capi_value_info((cvalue)))
+#define st_capi_make_tvalue(tvalue, cvalue) \
+    st_capi_init_tvalue(&(tvalue), st_capi_value_type_addr(cvalue))
 
 int st_capi_init_tvalue(st_tvalue_t *tvalue, st_tvalue_t src);
 
@@ -116,35 +116,37 @@ int st_capi_free(st_tvalue_t *value);
 
 #define st_capi_set(table, key, value)             \
     st_capi_do_add((table),                        \
-                   st_capi_value_info((key)),      \
-                   st_capi_value_info((value)),    \
+                   st_capi_value_type_addr(key),   \
+                   st_capi_value_type_addr(value), \
                    1)
 
 #define st_capi_add(table, key, value)             \
     st_capi_do_add((table),                        \
-                   st_capi_value_info((key)),      \
-                   st_capi_value_info((value)),    \
+                   st_capi_value_type_addr(key),   \
+                   st_capi_value_type_addr(value), \
                    0)
 
 int st_capi_do_add(st_table_t *table,
-                   st_tvalue_t kinfo,
-                   st_tvalue_t vinfo,
+                   st_tvalue_t k_type_addr,
+                   st_tvalue_t v_type_addr,
                    int force);
 
-#define st_capi_get(table, key, tval_ptr)    \
-    st_capi_do_get((table), st_capi_value_info((key)), (tval_ptr))
+#define st_capi_get(table, key, tval_ptr) \
+    st_capi_do_get((table), st_capi_value_type_addr(key), (tval_ptr))
 
 /**
  * here, we copy tvalue.
  * ret_val.bytes is allocated by st_malloc() in st_str_copy(),
  * so caller should free it by calling st_capi_free().
  */
-int st_capi_do_get(st_table_t *table, st_tvalue_t kinfo, st_tvalue_t *ret_val);
+int st_capi_do_get(st_table_t *table,
+                   st_tvalue_t k_type_addr,
+                   st_tvalue_t *ret_val);
 
-#define st_capi_remove_key(table, key)    \
-    st_capi_do_remove_key((table), st_capi_value_info((key)))
+#define st_capi_remove_key(table, key) \
+    st_capi_do_remove_key((table), st_capi_value_type_addr(key))
 
-int st_capi_do_remove_key(st_table_t *table, st_tvalue_t kinfo);
+int st_capi_do_remove_key(st_table_t *table, st_tvalue_t k_type_addr);
 
 typedef int (*st_capi_foreach_cb_t)(const st_tvalue_t *key,
                                     st_tvalue_t *value,
