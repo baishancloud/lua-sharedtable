@@ -52,18 +52,15 @@ st_luaapi_iter_gc(lua_State *L)
 static int
 st_luaapi_get_array_len_cb(const st_tvalue_t *key, st_tvalue_t *val, void *arg)
 {
-    int kvalue = 0;
-    st_tvalue_t *ret_key = (st_tvalue_t *)arg;
-
     if (key->type == ST_TYPES_INTEGER) {
-        kvalue = *((int *)key->bytes);
+        int kvalue = *((int *)key->bytes);
 
-        kvalue = kvalue > 0 ? kvalue : 0;
+        if (kvalue > 0) {
+            *((int *)arg) = kvalue;
+        }
     }
 
-    *((int *)ret_key->bytes) = kvalue;
-
-    return ST_ITER_STOP;
+    return ST_ITER_FINISH;
 }
 
 
@@ -75,23 +72,21 @@ st_luaapi_table_len(lua_State *L)
 
     st_table_t *table = st_table_get_table_addr_from_value(ud->table);
 
-    int len = INT_MAX;
+    int search_key = INT_MAX;
     st_tvalue_t key = st_str_null;
-    st_capi_make_tvalue(key, len);
+    st_capi_make_tvalue(key, search_key);
 
+    int table_len = 0;
     int ret = st_capi_foreach(table,
                               &key,
                               ST_SIDE_LEFT_EQ,
                               st_luaapi_get_array_len_cb,
-                              (void *)&key);
-    if (ret == ST_OK) {
-        len = 0;
-    }
-    else if (ret != ST_ITER_STOP) {
+                              (void *)&table_len);
+    if (ret != ST_OK) {
         return luaL_error(L, "failed to get table length: %d", ret);
     }
 
-    lua_pushnumber(L, len);
+    lua_pushnumber(L, table_len);
 
     return 1;
 }
@@ -139,7 +134,7 @@ st_luaapi_get_stack_value_info(lua_State *L,
             break;
         case LUA_TSTRING:
             value->s_value = (char *)luaL_checkstring(L, index);
-            *carg = st_capi_value_info(value->s_value);
+            *carg = st_capi_value_type_addr(value->s_value);
 
             break;
         case LUA_TUSERDATA:
@@ -454,7 +449,7 @@ st_luaapi_common_iterator(lua_State *L, int is_ipairs)
         return luaL_error(L, "table modified during iterate: %d", ret);
     }
 
-    if (ret == ST_NOT_FOUND) {
+    if (ret == ST_ITER_FINISH) {
         return 0;
     }
 
