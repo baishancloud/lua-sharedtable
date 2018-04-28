@@ -127,7 +127,7 @@ st_capi_foreach_nolock(st_table_t *table,
         return ret;
     }
 
-    while (ret == ST_OK) {
+    while (ret != ST_ITER_FINISH) {
         ret = st_table_iter_next(table, &iter, &key, &value);
 
         if (ret == ST_TABLE_MODIFIED) {
@@ -135,12 +135,15 @@ st_capi_foreach_nolock(st_table_t *table,
         }
 
         if (ret == ST_OK) {
-            /** ST_ITER_STOP would stop iterating normally */
+            /** ST_ITER_FINISH would stop iterating normally */
             ret = foreach_cb(&key, &value, args);
+            if (ret != ST_OK) {
+                break;
+            }
         }
     }
 
-    return (ret == ST_NOT_FOUND ? ST_OK : ret);
+    return (ret == ST_ITER_FINISH ? ST_OK : ret);
 }
 
 

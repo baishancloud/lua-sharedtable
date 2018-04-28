@@ -943,7 +943,7 @@ st_test(st_capi, iterator)
         st_tvalue_t key;
         st_tvalue_t value;
         ret = st_capi_next(&iter, &key, &value);
-        st_ut_eq(ST_NOT_FOUND, ret, "failed to iterate empty table: %d", ret);
+        st_ut_eq(ST_ITER_FINISH, ret, "failed to iterate empty table: %d", ret);
 
         int element_cnt = pstate->root->element_cnt;
         ret = st_capi_free_iterator(&iter);
@@ -1003,7 +1003,7 @@ st_test(st_capi, iterator)
         }
 
         ret = st_capi_next(&iter, &key, &value);
-        st_ut_eq(ST_NOT_FOUND, ret, "failed to finish iterating: %d", ret);
+        st_ut_eq(ST_ITER_FINISH, ret, "failed to finish iterating: %d", ret);
 
         element_cnt = pstate->root->element_cnt;
         ret = st_capi_free_iterator(&iter);

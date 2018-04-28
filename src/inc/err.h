@@ -27,7 +27,6 @@
   (ST_INITTWICE),             \
   (ST_IO),                    \
   (ST_ITER_FINISH),           \
-  (ST_ITER_STOP),             \
   (ST_NET_AGAIN),             \
   (ST_NET_BIND),              \
   (ST_NET_CHKSUM),            \
