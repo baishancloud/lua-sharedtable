@@ -19,12 +19,12 @@
 #define CONFIG_REGION               10
 #define PAGES_PER_REGION            1024
 #define REGION_NUM                  10
-#define ST_REGION_SHM_OBJ_REAL_PATH "/dev/shm/st_shm_area"
 
+static char st_test_shm_fname[NAME_MAX];
 
 /** check if fd represent file described by fpath */
 static void
-check_fd_file_path(int fd, const char *fpath)
+check_fd_file_path(int fd)
 {
     char proc_fd_path[PATH_MAX];
     memset(proc_fd_path, 0, PATH_MAX);
@@ -32,17 +32,18 @@ check_fd_file_path(int fd, const char *fpath)
     snprintf(proc_fd_path, PATH_MAX, "/proc/self/fd/%d", fd);
 
     char *real_path = realpath(proc_fd_path, NULL);
-
     st_ut_ne(NULL, real_path, "real_path is NULL, %s", strerror(errno));
 
-    ssize_t len = strlen(fpath);
-    st_ut_eq(len,
-             strlen(real_path),
-             "real_path length not right: %s", real_path);
-
-    st_ut_eq(0, strncmp(fpath, real_path, len), "real_path value not right");
-
+    strncpy(st_test_shm_fname, real_path, strlen(real_path));
     free(real_path);
+
+    pid_t pid;
+    char *suffix;
+    sscanf(st_test_shm_fname, "/dev/shm/%*d_%*d_%d_%ms", &pid, &suffix);
+
+    st_ut_eq(getpid(), pid, "pid part not right");
+    st_ut_eq(0, strncmp(suffix, "st_shm_area", 11), "suffix part not right");
+    free(suffix);
 }
 
 static void
@@ -54,7 +55,7 @@ test_st_region_shm_create(int *shm_fd, uint8_t **addr, int length)
     st_ut_eq(ST_OK, ret, "st_region_shm_create failed");
     st_ut_ne(MAP_FAILED, addr, "st_region_shm_create set addr wrong");
 
-    check_fd_file_path(*shm_fd, ST_REGION_SHM_OBJ_REAL_PATH);
+    check_fd_file_path(*shm_fd);
 }
 
 static void
@@ -65,7 +66,7 @@ test_st_region_shm_destroy(int shm_fd, uint8_t *addr, int length)
     st_ut_eq(ST_OK, ret, "st_region_shm_destroy failed");
 
     struct stat buf;
-    ret = stat(ST_REGION_SHM_OBJ_REAL_PATH, &buf);
+    ret = stat(st_test_shm_fname, &buf);
     st_ut_eq(-1, ret, "shm object still exist");
     st_ut_eq(ENOENT, errno, "shm object not deleted");
 }

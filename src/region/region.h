@@ -11,6 +11,8 @@
 #include <sys/types.h>
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
+#include <time.h>
 
 #include "inc/err.h"
 #include "inc/log.h"
