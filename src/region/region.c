@@ -8,8 +8,8 @@
 #include "region.h"
 
 
-#define ST_REGION_SHM_OBJ_PATH       "/st_shm_area"
-#define ST_REGION_SHM_OBJ_MODE       0660
+#define ST_REGION_SHM_OBJ_MODE          0660
+#define ST_REGION_SHM_OBJ_NAME_SUFFIX   "st_shm_area"
 
 #define st_region_lock(rcb) do {                                              \
     st_typeof(rcb) _rcb = rcb;                                                \
@@ -26,6 +26,9 @@
 } while(0)
 
 
+static char st_shm_fname[NAME_MAX];
+
+
 static inline int
 is_reg_state_free(const st_region_state_t state)
 {
@@ -38,6 +41,30 @@ is_reg_state_busy(const st_region_state_t state)
     return (state == ST_REGION_STATE_BUSY);
 }
 
+static inline int
+st_region_make_shm_name(char *fpath, int len)
+{
+    pid_t pid = getpid();
+
+    struct timespec tp;
+    int ret = clock_gettime(CLOCK_REALTIME, &tp);
+    if (ret != 0) {
+        derrno("failed to get time");
+
+        return ret;
+    }
+
+    ret = snprintf(fpath, len, "%ld_%ld_%d_%s",
+                   tp.tv_sec, tp.tv_nsec, pid, ST_REGION_SHM_OBJ_NAME_SUFFIX);
+    if (ret < 0 || ret >= len) {
+        return (ret < 0 ? ret : ST_BUF_NOT_ENOUGH);
+    }
+
+    dinfo("make shm file name: %s", fpath);
+
+    return ST_OK;
+}
+
 int
 st_region_shm_create(uint32_t length, void **ret_addr, int *ret_shm_fd)
 {
@@ -45,9 +72,15 @@ st_region_shm_create(uint32_t length, void **ret_addr, int *ret_shm_fd)
     st_must(ret_addr != NULL, ST_ARG_INVALID);
 
     int ret    = -1;
-    int shm_fd = shm_open(ST_REGION_SHM_OBJ_PATH,
-                          O_CREAT | O_RDWR | O_TRUNC,
+    int shm_fd = -1;
+
+    for (int cnt = 0; cnt < 3 && shm_fd == -1; cnt++) {
+        st_region_make_shm_name(st_shm_fname, NAME_MAX);
+        shm_fd = shm_open(st_shm_fname,
+                          O_CREAT | O_EXCL | O_RDWR,
                           ST_REGION_SHM_OBJ_MODE);
+    }
+
     if (shm_fd == -1) {
         derrno("failed to shm_open");
 
@@ -79,7 +112,7 @@ st_region_shm_create(uint32_t length, void **ret_addr, int *ret_shm_fd)
     return ST_OK;
 
 err_quit:
-    if (shm_unlink(ST_REGION_SHM_OBJ_PATH) != 0) {
+    if (shm_unlink(st_shm_fname) != 0) {
         derrno("failed to shm_unlink in st_region_shm_create");
     }
 
@@ -108,7 +141,7 @@ st_region_shm_destroy(int shm_fd, void *addr, uint32_t length)
         ret = (ret == ST_OK ? errno : ret);
     }
 
-    if (shm_unlink(ST_REGION_SHM_OBJ_PATH) != 0) {
+    if (shm_unlink(st_shm_fname) != 0) {
         derrno("failed to unlink shm: %d, %p, %d", shm_fd, addr, length);
 
         ret = (ret == ST_OK ? errno : ret);
