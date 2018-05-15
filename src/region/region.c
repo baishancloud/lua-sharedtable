@@ -180,22 +180,22 @@ st_region_shm_destroy(int shm_fd,
 
     int ret = ST_OK;
 
+    if (shm_unlink(shm_fn) != 0) {
+        derrno("failed to unlink shm: %d, %p, %d", shm_fd, addr, length);
+
+        ret = errno;
+    }
+
     if (munmap(addr, length) != 0) {
         derrno("failed to munmap: %d, %p, %d", shm_fd, addr, length);
 
-        ret = errno;
+        ret = (ret == ST_OK ? errno : ret);
     }
 
     if (close(shm_fd) != 0) {
         derrno("failed to close shm_fd: %d, %p, %d", shm_fd, addr, length);
 
         /** return the first errno */
-        ret = (ret == ST_OK ? errno : ret);
-    }
-
-    if (shm_unlink(shm_fn) != 0) {
-        derrno("failed to unlink shm: %d, %p, %d", shm_fd, addr, length);
-
         ret = (ret == ST_OK ? errno : ret);
     }
 

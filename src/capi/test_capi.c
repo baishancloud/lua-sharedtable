@@ -9,6 +9,7 @@
 #include "unittest/unittest.h"
 
 
+#define ST_CAPI_TEST_SHM_FN    "/shm_test_capi"
 #define ST_CAPI_TEST_PROCS_CNT 10
 
 
@@ -172,7 +173,7 @@ st_test(st_capi, module_init_destroy)
     st_ut_eq(NULL, pstate, "process state should not be inited");
 
     /** check st_capi_init */
-    int ret = st_capi_init();
+    int ret = st_capi_init(ST_CAPI_TEST_SHM_FN);
     st_ut_eq(ST_OK, ret, "failed to init module");
     pstate = st_capi_get_process_state();
 
@@ -189,6 +190,8 @@ st_test(st_capi, module_init_destroy)
              (uintptr_t)lstate->len - meta_size,
              "len not right");
     st_ut_eq(lstate->base, lstate, "lib state addr must be the same as base");
+    st_ut_eq(0, strcmp(ST_CAPI_TEST_SHM_FN, lstate->shm_fn), "wrong shm fn");
+    st_ut_eq(0, strcmp(st_version_get_fully(), lstate->version), "wrong version");
     st_ut_ne(NULL, lstate->g_root, "g_root must not be NULL");
     st_ut_eq(1, st_list_is_inited(&lstate->p_roots), "p_roots not inited");
     st_ut_eq(ST_CAPI_INIT_DONE, lstate->init_state, "state not right");
@@ -215,7 +218,7 @@ st_test(st_capi, module_init_destroy)
         st_ut_eq(-1, ret, "shm fd still exist");
         st_ut_eq(ENOENT, errno, "shm fd not closed");
 
-        ret = st_capi_init();
+        ret = st_capi_init(ST_CAPI_TEST_SHM_FN);
         st_ut_eq(ret, ST_OK, "failed to init module");
     }
 
@@ -227,7 +230,7 @@ st_test(st_capi, module_init_destroy)
 static void
 st_capi_prepare_ut(void)
 {
-    st_assert(st_capi_init() == ST_OK);
+    st_assert(st_capi_init(ST_CAPI_TEST_SHM_FN) == ST_OK);
 }
 
 

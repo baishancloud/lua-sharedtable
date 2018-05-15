@@ -232,7 +232,7 @@ st_capi_destroy(void)
     st_capi_t *lib_state = process_state->lib_state;
 
     st_must(lib_state->init_state >= ST_CAPI_INIT_NONE, ST_STATE_INVALID);
-    st_must(lib_state->init_state >= ST_CAPI_INIT_DONE, ST_STATE_INVALID);
+    st_must(lib_state->init_state <= ST_CAPI_INIT_DONE, ST_STATE_INVALID);
 
     int ret = ST_OK;
     int recycled = 0;
@@ -275,6 +275,7 @@ st_capi_destroy(void)
                 break;
             case ST_CAPI_INIT_SHM:
                 ret = st_region_shm_destroy(lib_state->shm_fd,
+                                            lib_state->shm_fn,
                                             lib_state->base,
                                             lib_state->len);
                 if (ret == ST_OK) {
@@ -415,9 +416,11 @@ err_quit:
 /**
  * call again only on failure in parent process.
  */
-int
-st_capi_init(void)
+static int
+st_capi_do_init(const char *shm_fn)
 {
+    st_assert_nonull(shm_fn);
+
     st_capi_process_t pstate;
 
     int shm_fd = -1;
@@ -426,8 +429,9 @@ st_capi_init(void)
     ssize_t page_size = st_page_size();
     ssize_t meta_size = st_align(sizeof(st_capi_t), page_size);
     ssize_t data_size = st_align(ST_REGION_CNT * ST_REGION_SIZE, page_size);
+    ssize_t length    = meta_size + data_size;
 
-    int ret = st_region_shm_create(meta_size + data_size, &base, &shm_fd);
+    int ret = st_region_shm_create(shm_fn, length, &base, &shm_fd);
     if (ret != ST_OK) {
         derr("failed to create shm: %d", ret);
 
@@ -444,8 +448,12 @@ st_capi_init(void)
     state->base       = base;
     state->data       = data;
     state->shm_fd     = shm_fd;
-    state->len        = meta_size + data_size;
+    state->len        = length;
     state->init_state = ST_CAPI_INIT_SHM;
+    memcpy(state->shm_fn, shm_fn, strlen(shm_fn));
+
+    const char *lib_version = st_version_get_fully();
+    memcpy(state->version, lib_version, strlen(lib_version));
 
     ret = st_region_init(&state->table_pool.slab_pool.page_pool.region_cb,
                          data,
@@ -502,9 +510,24 @@ st_capi_init(void)
     return ST_OK;
 
 err_quit:
-    st_assert(st_capi_destroy() == ST_OK);
+    st_assert_ok(st_capi_destroy(), "critical error, double fault in destroy");
 
     return ret;
+}
+
+
+int
+st_capi_init(const char *shm_fn)
+{
+    st_assert_nonull(shm_fn);
+
+    if (process_state != NULL) {
+        dinfo("module is already inited");
+
+        return ST_OK;
+    }
+
+    return st_capi_do_init(shm_fn);
 }
 
 

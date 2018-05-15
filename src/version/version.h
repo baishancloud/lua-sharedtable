@@ -2,6 +2,8 @@
 #define __ST_VERSION_H_INCLUDE__
 
 
+#define ST_VERSION_LEN_MAX 32
+
 typedef enum st_version_relation_e {
     ST_VERSION_COMPATIBLE = 0,
     ST_VERSION_CONFLICT   = 1,

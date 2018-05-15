@@ -12,7 +12,8 @@ deps         = pagepool   \
 			   gc         \
 			   table      \
 			   str        \
-			   util
+			   util		  \
+			   version
 
 test_exec    = test_capi
 

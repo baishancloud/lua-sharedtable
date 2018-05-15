@@ -1,13 +1,17 @@
 #ifndef __ST_CAPI_H_INCLUDE__
 #define __ST_CAPI_H_INCLUDE__
 
-#include "region/region.h"
-#include "pagepool/pagepool.h"
-#include "table/table.h"
-#include "robustlock/robustlock.h"
-#include "inc/util.h"
+
+#include <limits.h>
+
 #include "inc/types.h"
+#include "inc/util.h"
+#include "pagepool/pagepool.h"
+#include "region/region.h"
+#include "robustlock/robustlock.h"
 #include "str/str.h"
+#include "table/table.h"
+#include "version/version.h"
 
 
 #ifdef MEM_SMALL
@@ -17,6 +21,7 @@
 #define ST_REGION_CNT  (64U)
 #define ST_REGION_SIZE (1024U * 1024U * 1024U)
 #endif
+
 
 #define st_capi_get_type(cvalue) _Generic((cvalue),    \
     int                       : ST_TYPES_INTEGER,      \
@@ -66,11 +71,15 @@ struct st_capi_process_s {
 /** library state */
 struct st_capi_s {
     int  shm_fd;
-    /** start address of capi data section */
-    void *data;
     /** start address of shared memory */
     void *base;
+    /** length of the whole shared memory */
     ssize_t len;
+    /** version info major.minor.release, like 1.2.3 */
+    char version[ST_VERSION_LEN_MAX];
+    char shm_fn[NAME_MAX+1];
+    /** start address of capi data section */
+    void *data;
 
     st_list_t       p_roots;
     pthread_mutex_t lock;
@@ -86,7 +95,7 @@ struct st_capi_s {
 st_capi_process_t *st_capi_get_process_state(void);
 
 /** module init called by master process */
-int st_capi_init(void);
+int st_capi_init(const char *shm_fn);
 
 int st_capi_destroy(void);
 

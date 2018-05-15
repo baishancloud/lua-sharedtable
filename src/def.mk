@@ -127,7 +127,7 @@ clean:
 	-@rm $(target) 2>/dev/null
 	-@rm $(test_objs) $(test_debug_objs) 2>/dev/null
 	-@rm $(test_exec) 2>/dev/null
-	-@rm $(target_dylib) 2>/dev/null
+	-@rm $(target_dylib).$(st_version_full) 2>/dev/null
 	$(call make_each_dep, $(deps_a), 1, clean)
 	-@echo "clean done ----------------"
 
