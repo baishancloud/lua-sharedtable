@@ -13,6 +13,7 @@ deps         = capi       \
 			   gc         \
 			   table      \
 			   str        \
+			   version	  \
 			   util
 
 test_exec    = test_luaapi

@@ -73,8 +73,7 @@ st_luaapi_table_len(lua_State *L)
     st_table_t *table = st_table_get_table_addr_from_value(ud->table);
 
     int search_key = INT_MAX;
-    st_tvalue_t key = st_str_null;
-    st_capi_make_tvalue(key, search_key);
+    st_tvalue_t key = st_capi_make_tvalue(search_key);
 
     int table_len = 0;
     int ret = st_capi_foreach(table,
@@ -119,22 +118,22 @@ st_luaapi_get_stack_value_info(lua_State *L,
 
             if (iarg == darg) {
                 value->i_value = iarg;
-                st_capi_make_tvalue(*carg, value->i_value);
+                *carg = st_capi_make_tvalue(value->i_value);
             }
             else {
                 value->d_value = darg;
-                st_capi_make_tvalue(*carg, value->d_value);
+                *carg = st_capi_make_tvalue(value->d_value);
             }
 
             break;
         case LUA_TBOOLEAN:
             value->b_value = (st_bool)lua_toboolean(L, index);
-            st_capi_make_tvalue(*carg, value->b_value);
+            *carg = st_capi_make_tvalue(value->b_value);
 
             break;
         case LUA_TSTRING:
             value->s_value = (char *)luaL_checkstring(L, index);
-            *carg = st_capi_value_type_addr(value->s_value);
+            *carg = st_capi_make_tvalue(value->s_value);
 
             break;
         case LUA_TUSERDATA:
@@ -517,8 +516,7 @@ int
 st_luaapi_ipairs(lua_State *L)
 {
     int start = 1;
-    st_tvalue_t init_key = st_str_null;
-    st_capi_make_tvalue(init_key, start);
+    st_tvalue_t init_key = st_capi_make_tvalue(start);
 
     return st_luaapi_common_init_iter(L,
                                       &init_key,
@@ -608,8 +606,33 @@ static const luaL_Reg st_luaapi_table_metamethods[] = {
 };
 
 
+static int
+st_luaapi_module_init(lua_State *L)
+{
+    st_tvalue_t value;
+    st_luaapi_values_t fn;
+
+    /** 1st arg in stack is shared memory file name */
+    int ret = st_luaapi_get_stack_value_info(L, 1, &fn, &value);
+    if (ret != ST_OK || value.type != ST_TYPES_STRING) {
+        derr("invalid shm fn type for index: %d, %ld", ret, value.type);
+
+        return luaL_argerror(L, 1, "invalid shm fn type");
+    }
+
+    ret = st_capi_init(fn.s_value);
+    if (ret != ST_OK) {
+        return luaL_error(L, "failed to init module: %d, %s", ret, fn.s_value);
+    }
+
+    return 0;
+}
+
+
 /** module methods */
 static const luaL_Reg st_luaapi_module_methods[] = {
+    /** module init */
+    { "module_init",          st_luaapi_module_init          },
     /** worker init */
     { "worker_init",          st_luaapi_worker_init          },
     /** destroy the whole module */
@@ -647,16 +670,6 @@ luaopen_libluast(lua_State *L)
     /** module lua table */
     lua_newtable(L);
     luaL_register(L, ST_LUA_MODULE_NAME, st_luaapi_module_methods);
-
-    if (st_capi_init() != ST_OK) {
-        /**
-         * this function is called when loading library,
-         * so it should only be called once in master process.
-         * if failed, lua require() would return nil,
-         * so caller defines the error handling logic.
-         */
-        return 0;
-    }
 
     return 1;
 }

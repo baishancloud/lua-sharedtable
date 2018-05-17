@@ -5,6 +5,7 @@ local luast = require('libluast')
 local strfmt = string.format
 
 
+local shm_fn        = 'st_test_luaapi_shm'
 local MIN_INT_VALUE = -2147483648
 local MAX_INT_VALUE = 2147483647
 
@@ -21,6 +22,7 @@ local function test_luast_module_init()
            'module is not cached as luast')
 
     local module_protype = {
+        module_init          = 'function',
         worker_init          = 'function',
         destroy              = 'function',
         get                  = 'function',
@@ -41,6 +43,8 @@ local function test_luast_module_init()
         assert(vtype == etype,
                key .. ' must be ' .. etype .. ', got ' .. vtype)
     end
+
+    luast.module_init(shm_fn)
 
     print(debug.getinfo(1, "n").name .. ': OK')
 end
@@ -245,6 +249,8 @@ end
 
 
 local function test_luast_table_op()
+    luast.module_init(shm_fn)
+
     local pid = unistd.fork()
     if pid == 0 then
         -- test luast in child process
@@ -265,6 +271,8 @@ end
 
 
 local function test_luast_register_get_crash()
+    luast.module_init(shm_fn)
+
     local pids = {}
 
     for idx = 1, 10, 1 do
