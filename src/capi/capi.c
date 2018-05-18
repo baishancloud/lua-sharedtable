@@ -567,14 +567,24 @@ st_capi_do_remove_key(st_table_t *table, st_tvalue_t key)
 }
 
 
+static uintptr_t
+st_capi_make_proot_table_key(st_tvalue_t tbl_val)
+{
+    return (uintptr_t)tbl_val.bytes;
+}
+
+
 /** add or remove table reference in proot */
 static int
-st_capi_handle_table_ref(void *addr_as_key, st_table_t *table)
+st_capi_handle_table_ref(st_tvalue_t tbl_val, int do_add)
 {
-    st_must(addr_as_key != NULL, ST_ARG_INVALID);
+    st_assert_nonull(tbl_val.bytes);
 
-    uintptr_t key = (uintptr_t)addr_as_key;
-    if (table != NULL) {
+    uintptr_t key = st_capi_make_proot_table_key(tbl_val);
+
+    if (do_add) {
+        st_table_t *table = st_table_get_table_addr_from_value(tbl_val);
+
         return st_capi_add(process_state->root, key, table);
     }
 
@@ -616,9 +626,10 @@ st_capi_new(st_tvalue_t *ret_val)
 
         goto err_quit;
     }
+    *((st_table_t **)tvalue.bytes) = table;
 
-    /** use addr as key to add table in proot. */
-    ret = st_capi_handle_table_ref((void *)tvalue.bytes, table);
+    /** add table ref in proot. */
+    ret = st_capi_handle_table_ref(tvalue, 1);
     if (ret != ST_OK) {
         derr("failed to set table: %d", ret);
 
@@ -626,7 +637,6 @@ st_capi_new(st_tvalue_t *ret_val)
     }
 
     *ret_val = tvalue;
-    *((st_table_t **)ret_val->bytes) = table;
 
     return ST_OK;
 
@@ -647,7 +657,8 @@ st_capi_free(st_tvalue_t *value)
     st_must(value->bytes != NULL, ST_ARG_INVALID);
 
     if (st_types_is_table(value->type)) {
-        int ret = st_capi_handle_table_ref(value->bytes, NULL);
+        /** remove table ref in proot */
+        int ret = st_capi_handle_table_ref(*value, 0);
 
         if (ret != ST_OK) {
             derr("failed to remove table reference: %d", ret);
@@ -678,8 +689,7 @@ st_capi_copy_out_tvalue(st_tvalue_t *dst, st_tvalue_t *src)
     }
 
     if (st_types_is_table(value.type)) {
-        ret = st_capi_handle_table_ref(value.bytes,
-                                       *((st_table_t **)value.bytes));
+        ret = st_capi_handle_table_ref(value, 1);
 
         if (ret != ST_OK) {
             derr("failed to add table ref key in proot: %d", ret);
