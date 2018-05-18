@@ -33,24 +33,20 @@ st_capi_get_process_state(void)
 
 
 /**
- * the address where src.bytes points to is used as the buffer for st_tvalue_t,
+ * caddr is the address of a c value, and is used as the buffer of st_tvalue_t,
  * so its lifecycle must not be shorter than the returned st_tvalue_t.
- *
- * src is used to hold the pointer to value and value type only.
  */
-int
-st_capi_init_tvalue(st_tvalue_t *tvalue, st_tvalue_t src)
+st_tvalue_t
+st_capi_init_tvalue(void *caddr, st_types_t type)
 {
-    st_must(tvalue != NULL, ST_ARG_INVALID);
-    st_must(src.type != ST_TYPES_UNKNOWN, ST_UNSUPPORTED);
-    st_must(src.bytes != NULL, ST_ARG_INVALID);
+    st_assert_nonull(caddr);
 
-    int64_t len = 0;
-
-    switch (src.type) {
+    int64_t len    = 0;
+    uint8_t *bytes = (uint8_t *)caddr;
+    switch (type) {
         case ST_TYPES_STRING:
-            src.bytes = (uint8_t *)(*((char **)src.bytes));
-            len = strlen((char *)src.bytes) + 1;
+            bytes = (uint8_t *)(*((char **)caddr));
+            len = strlen((char *)bytes) + 1;
 
             break;
         case ST_TYPES_NUMBER:
@@ -76,12 +72,10 @@ st_capi_init_tvalue(st_tvalue_t *tvalue, st_tvalue_t src)
             break;
         default:
 
-            return ST_ARG_INVALID;
+            st_assert(0);
     }
 
-    *tvalue = (st_tvalue_t)st_str_wrap_common(src.bytes, src.type, len);
-
-    return ST_OK;
+    return (st_tvalue_t)st_str_wrap_common(bytes, type, len);
 }
 
 
@@ -532,31 +526,12 @@ st_capi_init(const char *shm_fn)
 
 
 int
-st_capi_do_add(st_table_t *table,
-               st_tvalue_t k_type_addr,
-               st_tvalue_t v_type_addr,
-               int force)
+st_capi_do_add(st_table_t *table, st_tvalue_t key, st_tvalue_t value, int force)
 {
     st_must(table != NULL, ST_ARG_INVALID);
-    st_must(k_type_addr.type != ST_TYPES_TABLE, ST_ARG_INVALID);
+    st_must(key.type != ST_TYPES_TABLE, ST_ARG_INVALID);
 
-    st_tvalue_t key;
-    st_tvalue_t value;
-
-    int ret = st_capi_init_tvalue(&key, k_type_addr);
-    if (ret != ST_OK) {
-        derr("failed to init key for set: %d", ret);
-
-        return ret;
-    }
-
-    ret = st_capi_init_tvalue(&value, v_type_addr);
-    if (ret != ST_OK) {
-        derr("failed to init value for set %d", ret);
-
-        return ret;
-    }
-
+    int ret;
     if (force) {
         ret = st_table_set_key_value(table, key, value);
     }
@@ -566,6 +541,24 @@ st_capi_do_add(st_table_t *table,
 
     if (ret != ST_OK) {
         dd("failed to set key value for set: %d", ret);
+
+        return ret;
+    }
+
+    return ST_OK;
+}
+
+
+int
+st_capi_do_remove_key(st_table_t *table, st_tvalue_t key)
+{
+    st_must(table != NULL, ST_ARG_INVALID);
+    st_must(key.bytes != NULL, ST_ARG_INVALID);
+    st_must(key.type != ST_TYPES_TABLE, ST_ARG_INVALID);
+
+    int ret = st_table_remove_key(table, key);
+    if (ret != ST_OK) {
+        derr("failed to remove key from table: %d", ret);
 
         return ret;
     }
@@ -709,25 +702,17 @@ err_quit:
 
 
 int
-st_capi_do_get(st_table_t *table, st_tvalue_t k_type_addr, st_tvalue_t *ret_val)
+st_capi_do_get(st_table_t *table, st_tvalue_t key, st_tvalue_t *ret_val)
 {
     st_must(table != NULL, ST_ARG_INVALID);
     st_must(ret_val != NULL, ST_ARG_INVALID);
-    st_must(k_type_addr.bytes != NULL, ST_ARG_INVALID);
-    st_must(k_type_addr.type != ST_TYPES_TABLE, ST_ARG_INVALID);
+    st_must(key.bytes != NULL, ST_ARG_INVALID);
+    st_must(key.type != ST_TYPES_TABLE, ST_ARG_INVALID);
 
     st_robustlock_lock(&table->lock);
 
-    st_tvalue_t key;
-    int ret = st_capi_init_tvalue(&key, k_type_addr);
-    if (ret != ST_OK) {
-        derr("failed to init tvalue of key: %d", ret);
-
-        goto quit;
-    }
-
     st_tvalue_t value;
-    ret = st_table_get_value(table, key, &value);
+    int ret = st_table_get_value(table, key, &value);
     if (ret != ST_OK) {
         dd("failed to get table value: %d", ret);
 
@@ -740,32 +725,6 @@ quit:
     st_robustlock_unlock(&table->lock);
 
     return ret;
-}
-
-
-int
-st_capi_do_remove_key(st_table_t *table, st_tvalue_t k_type_addr)
-{
-    st_must(table != NULL, ST_ARG_INVALID);
-    st_must(k_type_addr.bytes != NULL, ST_ARG_INVALID);
-    st_must(k_type_addr.type != ST_TYPES_TABLE, ST_ARG_INVALID);
-
-    st_tvalue_t key;
-    int ret = st_capi_init_tvalue(&key, k_type_addr);
-    if (ret != ST_OK) {
-        derr("failed to init tvalue for key: %d", ret);
-
-        return ret;
-    }
-
-    ret = st_table_remove_key(table, key);
-    if (ret != ST_OK) {
-        derr("failed to remove key from table: %d", ret);
-
-        return ret;
-    }
-
-    return ST_OK;
 }
 
 

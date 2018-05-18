@@ -21,13 +21,11 @@ st_test(st_capi, make_parse_tvalue)
     /** int */
     int int_val = 10;
     int tlen = sizeof(int);
-    st_tvalue_t int_tvalue;
 
     int type = st_capi_get_type(int_val);
     st_ut_eq(ST_TYPES_INTEGER, type, "failed to get int type");
 
-    int ret = st_capi_make_tvalue(int_tvalue, int_val);
-    st_ut_eq(ST_OK, ret, "failed to init tvalue from int");
+    st_tvalue_t int_tvalue = st_capi_make_tvalue(int_val);
 
     st_ut_eq(ST_TYPES_INTEGER, int_tvalue.type, "wrong int tvalue type");
     st_ut_eq(tlen, int_tvalue.len, "wrong int tvalue len");
@@ -37,13 +35,11 @@ st_test(st_capi, make_parse_tvalue)
     /** pid */
     pid_t pid_val = getpid();
     tlen = sizeof(pid_val);
-    st_tvalue_t pid_tvalue;
 
     type = st_capi_get_type(pid_val);
     st_ut_eq(ST_TYPES_INTEGER, type, "failed to get pid_t type");
 
-    ret = st_capi_make_tvalue(pid_tvalue, pid_val);
-    st_ut_eq(ST_OK, ret, "failed to init tvalue from pid_t");
+    st_tvalue_t pid_tvalue = st_capi_make_tvalue(pid_val);
 
     st_ut_eq(ST_TYPES_INTEGER, pid_tvalue.type, "wrong pid tvalue type");
     st_ut_eq(tlen, pid_tvalue.len, "wrong pid tvalue len");
@@ -52,14 +48,12 @@ st_test(st_capi, make_parse_tvalue)
 
     /** double */
     double double_val = 10.0;
-    st_tvalue_t double_tvalue;
     tlen = sizeof(double);
 
     type = st_capi_get_type(double_val);
     st_ut_eq(ST_TYPES_NUMBER, type, "failed to get double type");
 
-    ret = st_capi_make_tvalue(double_tvalue, double_val);
-    st_ut_eq(ST_OK, ret, "failed to init tvalue from double");
+    st_tvalue_t double_tvalue = st_capi_make_tvalue(double_val);
 
     st_ut_eq(ST_TYPES_NUMBER, double_tvalue.type, "wrong double tvalue type");
     st_ut_eq(tlen, double_tvalue.len, "wrong double tvalue len");
@@ -71,13 +65,11 @@ st_test(st_capi, make_parse_tvalue)
     /** st_bool */
     int bool_tlen = sizeof(st_bool);
     st_bool bool_val = 1;
-    st_tvalue_t bool_tvalue;
 
     type = st_capi_get_type(bool_val);
     st_ut_eq(ST_TYPES_BOOLEAN, type, "failed to get bool type");
 
-    ret = st_capi_make_tvalue(bool_tvalue, bool_val);
-    st_ut_eq(ST_OK, ret, "failed to init tvalue from bool");
+    st_tvalue_t bool_tvalue = st_capi_make_tvalue(bool_val);
 
     st_ut_eq(ST_TYPES_BOOLEAN, bool_tvalue.type, "wrong bool tvalue type");
     st_ut_eq(bool_tlen, bool_tvalue.len, "wrong bool tvalue len");
@@ -89,13 +81,11 @@ st_test(st_capi, make_parse_tvalue)
     /** char* aka. string */
     char *str_val = "hello world";
     int str_tlen = strlen(str_val) + 1;
-    st_tvalue_t str_tvalue;
 
     type = st_capi_get_type(str_val);
     st_ut_eq(ST_TYPES_STRING, type, "failed to get string type");
 
-    ret = st_capi_make_tvalue(str_tvalue, str_val);
-    st_ut_eq(ST_OK, ret, "failed to init tvalue from str");
+    st_tvalue_t str_tvalue = st_capi_make_tvalue(str_val);
 
     st_ut_eq(ST_TYPES_STRING, str_tvalue.type, "wrong string tvalue type");
     st_ut_eq(str_tlen, str_tvalue.len, "wrong string tvalue len");
@@ -114,9 +104,7 @@ st_test(st_capi, make_parse_tvalue)
     st_ut_eq(ST_TYPES_STRING, type, "failed to get char array type");
 
     char *carray_ptr = (char *)carray;
-    st_tvalue_t carray_tvalue;
-    ret = st_capi_make_tvalue(carray_tvalue, carray_ptr);
-    st_ut_eq(ST_OK, ret, "failed to init tvalue from char array");
+    st_tvalue_t carray_tvalue = st_capi_make_tvalue(carray_ptr);
 
     st_ut_eq(ST_TYPES_STRING, carray_tvalue.type, "wrong char array type");
     st_ut_eq(carray_len, carray_tvalue.len, "wrong char array len");
@@ -131,13 +119,11 @@ st_test(st_capi, make_parse_tvalue)
     st_table_t table = (st_table_t) { .element_cnt = 123320, };
     st_table_t *table_val = &table;
     int table_tlen = sizeof(st_table_t *);
-    st_tvalue_t table_tvalue;
 
     type = st_capi_get_type(table_val);
     st_ut_eq(ST_TYPES_TABLE, type, "failed to get table type");
 
-    ret = st_capi_make_tvalue(table_tvalue, table_val);
-    st_ut_eq(ST_OK, ret, "failed to init tvalue from table");
+    st_tvalue_t table_tvalue = st_capi_make_tvalue(table_val);
 
     st_ut_eq(ST_TYPES_TABLE, table_tvalue.type, "wrong table tvalue type");
     st_ut_eq(table_tlen, table_tvalue.len, "wrong table tvalue len");
@@ -149,14 +135,12 @@ st_test(st_capi, make_parse_tvalue)
     /** uint64_t for uintptr_t */
     uintptr_t uptr_val = 0x1234;
     uint64_t u64_val = (uint64_t)uptr_val;
-    st_tvalue_t u64_tvalue;
     tlen = sizeof(uint64_t);
 
     type = st_capi_get_type(u64_val);
     st_ut_eq(ST_TYPES_U64, type, "failed to get u64 type");
 
-    ret = st_capi_make_tvalue(u64_tvalue, u64_val);
-    st_ut_eq(ST_OK, ret, "failed to init tvalue from u64");
+    st_tvalue_t u64_tvalue = st_capi_make_tvalue(u64_val);
 
     st_ut_eq(ST_TYPES_U64, u64_tvalue.type, "wrong u64 tvalue type");
     st_ut_eq(tlen, u64_tvalue.len, "wrong u64 tvalue len");
@@ -243,12 +227,11 @@ st_capi_tear_down_ut(void)
 static void
 st_capi_check_proot(st_tvalue_t *value)
 {
-    st_tvalue_t proot_tbl_key;
     st_tvalue_t proot_tbl_value;
     st_capi_process_t *pstate = st_capi_get_process_state();
 
     uintptr_t key = (uintptr_t)value->bytes;
-    st_capi_make_tvalue(proot_tbl_key, key);
+    st_tvalue_t proot_tbl_key = st_capi_make_tvalue(key);
 
     int ret = st_table_get_value(pstate->root, proot_tbl_key, &proot_tbl_value);
     st_ut_eq(ST_OK, ret, "failed to set table elem ref in proot: %d", ret);
@@ -795,10 +778,9 @@ st_test(st_capi, new)
                      "new table is not inserted into proot");
 
             /** check if table is in proot */
-            st_tvalue_t key;
             st_tvalue_t value;
             uintptr_t key_name = (uintptr_t)table_vals[cnt].bytes;
-            st_capi_make_tvalue(key, key_name);
+            st_tvalue_t key = st_capi_make_tvalue(key_name);
 
             ret = st_table_get_value(pstate->root, key, &value);
 
