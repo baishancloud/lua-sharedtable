@@ -110,6 +110,7 @@ ifneq ($(target_dylib),)
 	$(CC) -fPIC -shared -o $(target_dylib).$(st_version_full)          \
 		-Wl,-soname,$(target_dylib).$(st_version_soname)               \
 		-Wl,--whole-archive $(target) $(deps_a) -Wl,--no-whole-archive $(libs:%=-l% )
+	@ln -sf $(target_dylib).$(st_version_full) $(target_dylib)
 else
 	@echo "no dylib target specified"
 endif
@@ -127,6 +128,7 @@ clean:
 	-@rm $(target) 2>/dev/null
 	-@rm $(test_objs) $(test_debug_objs) 2>/dev/null
 	-@rm $(test_exec) 2>/dev/null
+	-@rm $(target_dylib) 2>/dev/null
 	-@rm $(target_dylib).$(st_version_full) 2>/dev/null
 	$(call make_each_dep, $(deps_a), 1, clean)
 	-@echo "clean done ----------------"

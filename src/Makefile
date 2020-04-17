@@ -19,7 +19,8 @@ submod = binary     \
 		 table      \
 		 gc         \
 		 version    \
-		 sharetable
+		 capi       \
+		 luaapi
 
 test:
 	for mod in $(submod); do ( cd $$mod && $(MAKE) test; ) done

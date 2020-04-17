@@ -315,8 +315,8 @@ int st_table_set_key_value(st_table_t *table, st_str_t key, st_str_t value) {
 
     st_must(table != NULL, ST_ARG_INVALID);
     st_must(table->inited, ST_UNINITED);
-    st_must(key.bytes != NULL && key.len > 0, ST_ARG_INVALID);
-    st_must(value.bytes != NULL && value.len > 0, ST_ARG_INVALID);
+    st_must(key.bytes != NULL && key.len >= 0, ST_ARG_INVALID);
+    st_must(value.bytes != NULL && value.len >= 0, ST_ARG_INVALID);
 
     st_table_t *t = NULL;
     st_table_element_t *elem = NULL;
@@ -370,8 +370,8 @@ int st_table_add_key_value(st_table_t *table, st_str_t key, st_str_t value) {
 
     st_must(table != NULL, ST_ARG_INVALID);
     st_must(table->inited, ST_UNINITED);
-    st_must(key.bytes != NULL && key.len > 0, ST_ARG_INVALID);
-    st_must(value.bytes != NULL && value.len > 0, ST_ARG_INVALID);
+    st_must(key.bytes != NULL && key.len >= 0, ST_ARG_INVALID);
+    st_must(value.bytes != NULL && value.len >= 0, ST_ARG_INVALID);
 
     st_table_element_t *elem = NULL;
 
@@ -416,7 +416,7 @@ int st_table_remove_key(st_table_t *table, st_str_t key) {
 
     st_must(table != NULL, ST_ARG_INVALID);
     st_must(table->inited, ST_UNINITED);
-    st_must(key.bytes != NULL && key.len > 0, ST_ARG_INVALID);
+    st_must(key.bytes != NULL && key.len >= 0, ST_ARG_INVALID);
 
     st_table_element_t *removed = NULL;
     st_gc_t *gc = &table->pool->gc;
@@ -452,7 +452,7 @@ int st_table_get_value(st_table_t *table, st_str_t key, st_str_t *value) {
 
     st_must(table != NULL, ST_ARG_INVALID);
     st_must(table->inited, ST_UNINITED);
-    st_must(key.bytes != NULL && key.len > 0, ST_ARG_INVALID);
+    st_must(key.bytes != NULL && key.len >= 0, ST_ARG_INVALID);
     st_must(value != NULL, ST_ARG_INVALID);
 
     st_table_element_t *elem;
